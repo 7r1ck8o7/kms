@@ -36,6 +36,16 @@ pushd "%CD%"
 CD /D "%~dp0"
 ::--------------------------------------
 
+:: force a .bat to run in a legacy screen environment of cmd in Windows Terminal
+::--------------------------------------
+set id=%random%
+title %id%
+tasklist /v /fo csv | findstr "%id%" | findstr "cmd.exe"
+if %errorlevel% == 1 start conhost "%~f0" & GOTO :EOF 
+::--------------------------------------
+
+if /i "%*" EQU "/u" (set Unattended=1) else (set Unattended=0)
+
 :: ### Configuration Options ###
 
 :: change to 1 to enable debug mode (can be used with unattended options)
@@ -231,6 +241,7 @@ set "_batf=%~f0"
 set "_batp=%_batf:'=''%"
 set "_utemp=%TEMP%"
 set "_Local=%LocalAppData%"
+set "_WindowsApps=%_Local%\Microsoft\WindowsApps"
 set "_temp=%SystemRoot%\Temp"
 set "_log=%~dpn0"
 set "_work=%~dp0"
@@ -383,6 +394,11 @@ set "errortext=---ERROR-------------------------------"
 set "processtext=---Processing--------------------------"
 set "exittext=---Exiting-----------------------------"
 set "noticetext=---NOTICE------------------------------"
+set "finishedtext=---Finished----------------------------"
+set "completedtext=---Completed---------------------------"
+set "EchoRed=powershell -NoProfile write-host -back Black -fore Red"
+set "EchoGreen=powershell -NoProfile write-host -back Black -fore Green"
+set "ELine=echo. & %EchoRed% ===ERROR=============================== &echo."
 set SSppHook=0
 for /f %%A in ('dir /b /ad %SysPath%\spp\tokens\skus') do (
   if %winbuild% GEQ 9200 if exist "%SysPath%\spp\tokens\skus\%%A\*GVLK*.xrm-ms" set SSppHook=1
@@ -435,6 +451,41 @@ if %OSType% EQU Win7 if exist "%SysPath%\wlms\wlms.exe" (
 sc query wlms | find /i "STOPPED" %_Nul1% || set _wlms=1
 )
 
+call :reg_query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion" "CurrentBuildNumber"     OS_VERSION
+call :reg_query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion" "DisplayVersion"         OS_VID
+call :reg_query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion" "EditionID"              OS_EDITION
+call :reg_query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion" "ProductName"            OS_PRODUCT
+call :reg_query "HKU\S-1-5-18\Control Panel\Desktop\MuiCached" "MachinePreferredUILanguages" OS_LANGCODE
+
+set "xOS="
+if /i "%PROCESSOR_ARCHITECTURE%"=="amd64" set "xOS=x64"
+if /i "%PROCESSOR_ARCHITECTURE%"=="x86" set "xOS=x86"
+if /i "%PROCESSOR_ARCHITECTURE%"=="arm64" set "xOS=arm64"
+
+for /f "tokens=6 delims=[]. " %%# in ('ver') do set NameOS=%%#
+for /f "skip=2 tokens=2*" %%a in ('reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion" /v ProductName 2^>nul') do if not errorlevel 1 set "NameOS=%%b"
+
+for /f "tokens=* delims=" %%a in ('powershell -nop -c "(([WMISEARCHER]'Select Version from Win32_OperatingSystem').Get()).Version"') do set "Version=%%a"
+for /f "tokens=* delims=" %%a in ('powershell -nop -c "([WMI]'').ConvertToDateTime((Get-WmiObject Win32_OperatingSystem).InstallDate)"') do set "OS_INSTALLDATE=%%a"
+for /f "tokens=* delims=" %%a in ('powershell -nop -c "(Get-WmiObject Win32_OperatingSystem).SerialNumber"') do set "OS_SERIALNUMBER=%%a"
+for /f "tokens=* delims=" %%a in ('powershell -nop -c "(Get-WmiObject Win32_OperatingSystem).OSArchitecture"') do set "OS_ARCHITECTURE=%%a"
+for /f "tokens=* delims=" %%a in ('powershell -nop -c "(Get-WmiObject Win32_OperatingSystem).Caption"') do set "OS_NAME=%%a"
+for /f "tokens=* delims=" %%a in ('powershell -nop -c "(Get-WmiObject Win32_Processor).Name"') do set "CPU_NAME=%%a"
+for /f "tokens=* delims=" %%a in ('powershell -nop -c "(Get-WmiObject SoftwareLicensingService).OA3xOriginalProductKey"') do set "OS_ORIGINALPRODUCTKEY=%%a"
+for /f "tokens=* delims=" %%a in ('powershell -nop -c "(Get-WmiObject win32_bios).Serialnumber"') do set "BIOS_SERIALNUMBER=%%a"
+for /f "tokens=* delims=" %%a in ('powershell -nop -c "(Get-WmiObject win32_bios).Version"') do set "BIOS_VERSION=%%a"
+
+
+::for /f "tokens=*" %%f in ('wmic cpu get NumberOfCores /value ^| find "="') do set "NumberOfCores=%%f"
+::for /f "tokens=*" %%f in ('wmic cpu get Name | find /v "Name" ^| find "="') do set "CPU_NAME=%%f"
+IF [%BIOS_SERIALNUMBER%]==[] set "BIOS_SERIALNUMBER=Bios not SerialNumber"
+IF [%OS_ORIGINALPRODUCTKEY%]==[] set "OS_ORIGINALPRODUCTKEY=OEM key not present in firmware"
+
+set yy=%date:~-4%
+set mm=%date:~-7,2%
+set dd=%date:~-10,2%
+for /f "tokens=1-2 delims=/:" %%a in ('time /t') do (set mytime=%%a:%%b)
+
 set _uRI=%KMS_RenewalInterval%
 set _uAI=%KMS_ActivationInterval%
 set _dDbg=No
@@ -457,11 +508,11 @@ cls&goto :DoActivate
 :MainMenu
 cls
 set w=80
-set /a h=(%w%/5)*2
-mode con: cols=%w% lines=%h%
+set /a h=(%w%/4)*2+9
+mode con cols=%w% lines=%h%
 ::mode con cols=80 lines=32
 color 0f
-set "_title=Microsoft Activation Tool %uivr%"
+set "_title=Microsoft Tool %uivr%"
 title %_title%
 call :subOffice
 set _dMode=Manual
@@ -486,6 +537,21 @@ if not exist "'" (<nul >"'" set /p "=.")
 )
 echo.
 echo           %line3%
+echo.
+echo                WINDOWS SPECIFICATIONS
+echo                OS NAME : %OS_NAME% %OS_VID% %OS_ARCHITECTURE%
+echo                VERSION : %Version%
+echo                INSTALLED ON : %OS_INSTALLDATE%
+echo                PRODUCT ID : %OS_SERIALNUMBER%
+echo                PRODUCT KEY : %OS_ORIGINALPRODUCTKEY%
+echo                CPU : %CPU_NAME%
+echo                BIOS SERIALNUMBER : %BIOS_SERIALNUMBER%
+echo                PC NAME : %COMPUTERNAME%
+echo                %dd%.%mm%.%yy% ^- %mytime%
+echo.
+echo                %line4%
+echo.
+echo                    Start:
 echo.
 rem echo                [1] Activate [%_dMode% Mode]
 if %_AUR% EQU 1 (
@@ -548,10 +614,11 @@ echo.
 echo                    Miscellaneous:
 echo.
 echo                [8] Check Activation Status
+echo                [9] Troubleshooter
 echo                [C] Create $OEM$ Folder
 echo                [D] Decode Embedded Binary Files
 echo                [K] Clear KMS host caching
-echo                [M] Disable Microsoft Defender
+echo                [M] Microsoft Store
 echo                [S] Config Windows/Office Options
 echo                [R] Read Me
 ::echo                [E] Activate by using KMS [External Mode]
@@ -564,8 +631,8 @@ popd
 )
 choice /c 123456789QEDRCVXKMS /n /m "Choice :> "
 set _el=%errorlevel%
-if %_el%==19 goto :supMenu
-if %_el%==18 goto :disable_MicrosoftDefender
+if %_el%==19 goto :supMenu_Config
+if %_el%==18 goto :supMenu_Store
 if %_el%==17 goto :clearKMShost
 if %_el%==16 if %winbuild% GEQ 10240 (if %SkipKMS38% EQU 0 (set SkipKMS38=1) else (set SkipKMS38=0))&goto :MainMenu
 if %_el%==15 (if %vNextOverride% EQU 0 (set vNextOverride=1) else (set vNextOverride=0))&goto :MainMenu
@@ -573,8 +640,8 @@ if %_el%==14 (call :CreateOEM)&goto :MainMenu
 if %_el%==13 (call :CreateReadMe)&goto :MainMenu
 if %_el%==12 (call :CreateBIN)&goto :MainMenu
 if %_el%==11 goto :E_IP
-if %_el%==10 (set _quit=1&goto :TheEnd)
-if %_el%==9 (call :casWm)&goto :MainMenu
+if %_el%==10 (timeout 3 /nobreak> nul&set _quit=1&goto :TheEnd)
+if %_el%==9 goto :supMenu_Troubleshooter
 if %_el%==8 (call :casWm)&goto :MainMenu
 if %_el%==7 (if %AutoR2V% EQU 0 (set AutoR2V=1) else (set AutoR2V=0))&goto :MainMenu
 if %_el%==6 (if %ActOffice% EQU 0 (set ActOffice=1) else (set ActWindows=1&set ActOffice=0))&goto :MainMenu
@@ -585,7 +652,7 @@ if %_el%==2 (set _ReAR=1&if %_AUR% EQU 0 (set _AUR=1&set _verb=1&set _rtr=DoActi
 if %_el%==1 (cls&goto :DoActivate)
 goto :MainMenu
 
-:supMenu
+:supMenu_Config
 cls
 echo.
 echo           %line3%
@@ -603,7 +670,7 @@ set s_el=%errorlevel%
 if %s_el%==3 goto :MainMenu
 if %s_el%==2 goto :supMenu_office
 if %s_el%==1 goto :supMenu_windows
-goto :supMenu
+goto :supMenu_Config
 
 :supMenu_windows
 cls
@@ -612,44 +679,56 @@ echo           %line3%
 echo.
 echo                    Config Windows Options:
 echo.
-echo                [1] Configure Feature LPR/LPD Printer
-echo                [2] Configure Windows Firewall
-echo                [3] Configure and access shared folders on Windows
-echo                [4] Configure Display Language
-echo                [5] Configure Tablet Mode
-echo                [6] Configure RPC connection settings on Windows
-echo                [7] Battery report
-echo                [8] Specify Target Feature Update Version in Windows 10
-echo                [9] Specify Target Feature Update Version in Windows 11
+echo                [1] Setting Feature LPR/LPD Printer
+echo                [2] Setting Windows Firewall
+echo                [3] Setting and access shared folders
+echo                [4] Setting Display Language
+echo                [5] Setting Tablet Mode
+echo                [6] Setting RPC connection settings on Windows
+echo                [7] Setting Digitally sign communications (always)
+echo                [8] Battery report
+echo                [9] Specify Target Feature Update Version in Windows 10
+echo                [0] Specify Target Feature Update Version in Windows 11
 echo                [D] Delete temporary files in Windows
+echo                [P] Clearing the Windows Print Spooler
 echo                [A] Change AnyDesk Address Name or Reset AnyDesk ID Address
 echo                [V] OEM Product Key
 echo                [G] Enable the GPEdit.msc on Windows 10 and 11 Home Edition
 echo                [C] Change Windows Edition
 echo                [R] Change computer name to BIOS serial number
+echo                [W] Install WMIC to a Windows 11 24H2
+echo                [S] Setting Require SMB Encryption
+echo                [M] Disable Microsoft Defender
+echo                [I] Show Icon Devices and Printers On Desktop
 echo.
 echo           %line3%
 echo.
 echo                [Q] Quit to Config Options
-choice /c 123456789DAVGCRQ /n /m "Choice :> "
+choice /c 1234567890DPAVGCRWSMIQ /n /m "Choice :> "
 set s_el=%errorlevel%
-if %s_el%==16 goto :supMenu
-if %s_el%==15 goto :changeComputerName
-if %s_el%==14 goto :changeWindowsEdition
-if %s_el%==13 goto :enableGroupPolicyEditor
-if %s_el%==12 goto :oemkeyreport
-if %s_el%==11 goto :resetAnyDeskID
-if %s_el%==10 goto :clearTemporaryFiles
-if %s_el%==9 goto :specifyTargetWindows11
-if %s_el%==8 goto :specifyTargetWindows10
-if %s_el%==7 goto :batteryreport
-if %s_el%==6 goto :configRPC
-if %s_el%==5 goto :configTabletMode
-if %s_el%==4 goto :configWindowsLanguage
-if %s_el%==3 goto :configShare
-if %s_el%==2 goto :configWindowsFirewall
-if %s_el%==1 goto :configLPR_LPD
-goto :supMenu
+if %s_el%==22 goto :supMenu_Config
+if %s_el%==21 goto :showicon_devicesandprintersondesktop
+if %s_el%==20 goto :disable_MicrosoftDefender
+if %s_el%==19 goto :settingRequireSMBEncryption
+if %s_el%==18 goto :installWMIC
+if %s_el%==17 goto :changeComputerName
+if %s_el%==16 goto :changeWindowsEdition
+if %s_el%==15 goto :enableGroupPolicyEditor
+if %s_el%==14 goto :oemkeyreport
+if %s_el%==13 goto :resetAnyDeskID
+if %s_el%==12 goto :clearWindowsPrintSpooler
+if %s_el%==11 goto :clearTemporaryFiles
+if %s_el%==10 goto :specifyTargetWindows11
+if %s_el%==9 goto :specifyTargetWindows10
+if %s_el%==8 goto :batteryreport
+if %s_el%==7 goto :settingDSCalways
+if %s_el%==6 goto :settingRPC
+if %s_el%==5 goto :settingTabletMode
+if %s_el%==4 goto :settingWindowsLanguage
+if %s_el%==3 goto :settingShare
+if %s_el%==2 goto :settingWindowsFirewall
+if %s_el%==1 goto :settingLPR_LPD
+goto :supMenu_Config
 
 :supMenu_office
 cls
@@ -658,8 +737,8 @@ echo           %line3%
 echo.
 echo                    Config Office Options:
 echo.
-echo                [1] Configure Feature Sign-In Button in Office 2013
-echo                [2] Configure Feature Sign-In Button in Office 2016-2024
+echo                [1] Setting Feature Sign-In Button in Office 2013
+echo                [2] Setting Feature Sign-In Button in Office 2016-2024
 echo                [3] Visual refresh of Office 365 Edition for Windows 
 echo                [4] Visual refresh of Office LTSC Edition for Windows 
 echo.
@@ -668,12 +747,73 @@ echo.
 echo                [Q] Quit to Config Options
 choice /c 1234Q /n /m "Choice :> "
 set s_el=%errorlevel%
-if %s_el%==5 goto :supMenu
+if %s_el%==5 goto :supMenu_Config
 if %s_el%==4 goto :enable_VisualUI_LTSC
 if %s_el%==3 goto :enable_VisualUI_365
-if %s_el%==2 goto :configSignIn2016
-if %s_el%==1 goto :configSignIn2013
-goto :supMenu
+if %s_el%==2 goto :settingSignIn2016
+if %s_el%==1 goto :settingSignIn2013
+goto :supMenu_Config
+
+:supMenu_Troubleshooter
+cls
+echo.
+echo           %line3%
+echo.
+echo                    Troubleshooter:
+echo.
+echo                [1] Windows Update Troubleshooter
+echo                [2] Remove Windows.old folder
+echo                [3] Font Cache Troubleshooter
+echo                [4] Edit Hosts File
+echo                [5] Flush DNS Resolver Cache
+echo.
+echo           %line3%
+echo.
+echo                [Q] Quit to Main Menu
+choice /c 12345Q /n /m "Choice :> "
+set s_el=%errorlevel%
+if %s_el%==6 goto :MainMenu
+if %s_el%==5 goto :windows_Flushdns
+if %s_el%==4 goto :openHosts
+if %s_el%==3 goto :windows_FontCacheTroubleshooter
+if %s_el%==2 goto :delete_WindowsOld
+if %s_el%==1 goto :windows_UpdateTroubleshooter
+goto :supMenu_Troubleshooter
+
+
+:supMenu_Store
+cls
+echo.
+echo           %line3%
+echo.
+echo                    Microsoft Store Options:
+echo.
+echo                [1] Install Framework Runtime Form WinGet
+echo                [2] Install Softwere Form WinGet
+echo                [3] Install Softwere Hardware Diagnostics Form WinGet
+echo                [4] Install Softwere Net Speed Test
+echo                [5] Install Application Social Form WinGet
+echo                [6] Install NET Framework 3.5 (Online Required)
+echo                [7] Upgrade Softwere Form WinGet
+echo                [8] Install Office 365
+echo                [9] Install Office 2024 LTSC
+echo.
+echo           %line3%
+echo.
+echo                [Q] Quit to Main Menu
+choice /c 123456789Q /n /m "Choice :> "
+set s_el=%errorlevel%
+if %s_el%==10 goto :MainMenu
+if %s_el%==9 goto :install_o2024lts
+if %s_el%==8 goto :install_o365
+if %s_el%==7 goto :upgradeSoftwere
+if %s_el%==6 goto :install_NetFx3
+if %s_el%==5 goto :installSocial
+if %s_el%==4 goto :installNetSpeedTest
+if %s_el%==3 goto :installHardwarediagnostics
+if %s_el%==2 goto :installSoftware
+if %s_el%==1 goto :installFramework
+goto :supMenu_Store
 
 :colorprep
 set preparedcolor=1
@@ -731,6 +871,9 @@ exit /b
 
 :E_IP
 cls
+set w=80
+set /a h=(%w%/5)*2
+mode con: cols=%w% lines=%h%
 echo.
 echo Microsoft (R) Software Licensing.
 echo Copyright (C) Microsoft Corporation. All rights reserved.
@@ -738,9 +881,9 @@ echo =========================================================
 echo.
 echo Online Public KMS Servers
 echo %linetext%
-echo [1] kms.myds.cloud (IPv6 support)
+echo [1] kms.cgtsoft.com (IPv6 support)
 echo [2] windows.kms.app (IPv6 support)
-echo [3] kms.cgtsoft.com (IPv6 support)
+echo [3] kms.myds.cloud (IPv6 support)
 echo [4] kms.03k.org
 echo [5] skms.netnr.eu.org
 echo [6] kms.ghxi.com
@@ -776,9 +919,9 @@ if %kip_el% EQU 7 (set "kip=kms.msgang.com")
 if %kip_el% EQU 6 (set "kip=kms.ghxi.com")
 if %kip_el% EQU 5 (set "kip=skms.netnr.eu.org")
 if %kip_el% EQU 4 (set "kip=kms.03k.org")
-if %kip_el% EQU 3 (set "kip=kms.cgtsoft.com")
+if %kip_el% EQU 3 (set "kip=kms.myds.cloud")
 if %kip_el% EQU 2 (set "kip=windows.kms.app")
-if %kip_el% EQU 1 (set "kip=kms.myds.cloud")
+if %kip_el% EQU 1 (set "kip=kms.cgtsoft.com")
 ::set /p kip=KMS host :^> 
 
 if not defined kip goto :MainMenu
@@ -816,12 +959,12 @@ set KMS_RenewalInterval=%_uRI%
 set KMS_ActivationInterval=%_uAI%
 )
 if %External% EQU 1 (
-color 08&set "mode=External ^(Server: %KMS_IP%^)"
+color 08&set "mode=External [Server: %KMS_IP%]"
 ) else (
 if %_AUR% EQU 0 (color 1F&set "mode=Manual") else (color 07&set "mode=Auto Renewal")
 )
 if %Unattend% EQU 0 (
-if %_Debug% EQU 0 (title %_title%) else (set "_title=Microsoft Activation Tool %uivr% : %mode%"&title Microsoft Activation Tool %uivr% : %mode%)
+if %_Debug% EQU 0 (title %_title%) else (set "_title=Microsoft Tool %uivr% : %mode%"&title Microsoft Tool %uivr% : %mode%)
 ) else (
 echo.
 echo Running KMS Activation/Info Tool %uivr%
@@ -843,15 +986,22 @@ echo Activation Mode: %mode%
 echo Date : %date% Time : %time%
 echo %linetop%
 echo.
-echo %processtext%
-echo %linetext%
-echo Check KMS server reachable 
-echo Test ping: %KMS_IP%
-ping -n 1 %KMS_IP% | find "TTL=" >nul
-if errorlevel 0 set pingrsl=Online
-if errorlevel 1 goto E_Ping
-echo KMS server is %pingrsl%
-echo.
+if %External% EQU 1 (
+  echo %processtext%
+  echo %linetext%
+  echo Check KMS server reachable 
+  echo Test ping: %KMS_IP%
+  ping -n 1 %KMS_IP% | find "TTL=" >nul
+  if %errorlevel% equ 0 (
+    set pingrsl=Online
+    rem Add commands here for successful ping
+  ) else (
+    goto E_Ping
+    rem Add commands here for failed ping
+  )
+  echo KMS server is %pingrsl%
+  echo.
+)
 echo %processtext%
 echo %linetext%
 echo Check time zone
@@ -862,10 +1012,14 @@ echo Check time zone
 ::w32tm /config /manualpeerlist:time.cloudflare.com time.windows.com time.apple.com time.google.com time.facebook.com time.nist.gov pool.ntp.org th.pool.ntp.org asia.pool.ntp.org /syncfromflags:manual /update >nul
 ::w32tm /config /update >nul
 ::w32tm /resync /rediscover
+w32tm /config /manualpeerlist:"time.cloudflare.com time.windows.com time.apple.com time.google.com time.facebook.com time.nist.gov pool.ntp.org th.pool.ntp.org asia.pool.ntp.org" /syncfromflags:manual /update >nul
 echo Date : %date% Time : %time%
 tzutil /g | find "SE Asia" >nul
-if errorlevel 1 goto E_TimeZone
-if errorlevel 0 set TimeZone=SE Asia Standard Time
+if errorlevel 1 (
+    goto E_TimeZone
+) else (
+    set TimeZone=SE Asia Standard Time
+)
 echo Time zone is %TimeZone%
 
 if defined _wlms call :stopWLMS %_Nul3%
@@ -5705,7 +5859,7 @@ function ClicRun
 }
 #endregion
 
-$Host.UI.RawUI.WindowTitle = "Check Activation Status"
+$Host.UI.RawUI.WindowTitle = "Microsoft Tool - Check Activation Status"
 
 $SysPath = "$env:SystemRoot\System32"
 if (Test-Path "$env:SystemRoot\Sysnative\reg.exe") {
@@ -6600,6 +6754,7 @@ pause >nul
 goto :MainMenu
 
 :E_Ping
+echo.
 echo %_err%
 echo No more KMS servers are available.
 echo Make sure that the Internet is properly connected and any
@@ -6610,9 +6765,10 @@ echo Press any key to exit.
 if %_Debug% EQU 1 goto :eof
 if %Unattend% EQU 1 goto :eof
 pause >nul
-goto :eof
+goto :MainMenu
 
 :E_TimeZone
+echo.
 echo %_err%
 echo Timezone is not "SE Asia Standard Time"
 echo *** Seting new time zone ***
@@ -6625,9 +6781,10 @@ echo Press any key to exit.
 if %_Debug% EQU 1 goto :eof
 if %Unattend% EQU 1 goto :eof
 pause >nul
-goto :eof
+goto :MainMenu
 
 :E_Admin
+echo.
 echo %_err%
 echo This script requires administrator privileges.
 echo To do so, right-click on this script and select 'Run as administrator'
@@ -6682,15 +6839,17 @@ goto :E_Exit
 :E_Exit
 if %_Debug% EQU 1 goto :eof
 if %Unattend% EQU 1 goto :eof
+timeout /t 5 >nul
 echo.
 echo Press any key to exit.
 pause >nul
-goto :eof
+goto :MainMenu
 
 :UnsupportedVersion
 echo %_err%
 echo Unsupported OS version Detected.
 echo Project is supported only for Windows 7/8/8.1/10/11 and their Server equivalents.
+
 :TheEnd
 if exist "%PUBLIC%\ReadMeAIO.html" del /f /q "%PUBLIC%\ReadMeAIO.html"
 if exist "%_temp%\'" del /f /q "%_temp%\'"
@@ -6817,6 +6976,61 @@ exit /b
 set _qr=%_psc% "(([WMISEARCHER]'SELECT %~3 FROM %~1 WHERE ID=''%~2''').Get()).Properties | %% {$_.Name+'='+$_.Value}"
 exit /b
 
+
+rem ---START------------------------------
+:showicon_devicesandprintersondesktop
+cls
+echo.
+echo           %line3%
+echo.
+echo                    Show Icon Devices and Printers On Desktop
+echo.
+echo                [1] Enable
+echo                [2] Disable
+echo.
+echo           %line3%
+echo.
+echo                [Q] Quit to Main Menu
+choice /c 12Q /n /m "Choice :> "
+set s_el=%errorlevel%
+if %s_el%==3 goto :supMenu_windows
+if %s_el%==2 goto :delete__devicesandprintersondesktop
+if %s_el%==1 goto :add_devicesandprintersondesktop
+goto :supMenu_windows
+
+:add_devicesandprintersondesktop
+cls
+echo.
+echo %linetop%
+echo Add Icon Devices and Printers On Desktop
+echo %linebottom%
+echo.
+echo %processtext%
+echo %linetext%
+echo.
+reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Desktop\NameSpace\{2227a280-3aea-1069-a2de-08002b30309d}" /ve /t REG_SZ /d "Devices and Printers" /f >nul
+echo.
+echo Press any key to continue.
+pause >nul
+goto :showicon_devicesandprintersondesktop
+
+:delete__devicesandprintersondesktop
+cls
+echo.
+echo %linetop%
+echo Delete Icon Devices and Printers On Desktop
+echo %linebottom%
+echo.
+echo %processtext%
+echo %linetext%
+echo.
+reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Desktop\NameSpace\{2227a280-3aea-1069-a2de-08002b30309d}" /f
+echo.
+echo Press any key to continue.
+pause >nul
+goto :showicon_devicesandprintersondesktop
+rem ---END--------------------------------
+
 rem ---START------------------------------
 :specifyTargetWindows10
 cls
@@ -6831,15 +7045,17 @@ echo                [3] Specify target Feature Update version to 20H2
 echo                [4] Specify target Feature Update version to 21H1
 echo                [5] Specify target Feature Update version to 21H2
 echo                [6] Specify target Feature Update version to 22H2
-echo                [7] Undo specify target Feature Update version
+echo                [7] Specify target Feature Update version to 2009
+echo                [8] Undo specify target Feature Update version
 echo.
 echo           %line3%
 echo.
 echo                [Q] Quit to Main Menu
-choice /c 1234567Q /n /m "Choice :> "
+choice /c 12345678Q /n /m "Choice :> "
 set s_el=%errorlevel%
-if %s_el%==8 goto :supMenu_windows
-if %s_el%==7 goto :undo_Specify
+if %s_el%==9 goto :supMenu_windows
+if %s_el%==8 goto :undo_Specify
+if %s_el%==7 goto :w10to_2009
 if %s_el%==6 goto :w10to_22H2
 if %s_el%==5 goto :w10to_21H2
 if %s_el%==4 goto :w10to_21H1
@@ -6860,7 +7076,7 @@ echo %linetext%
 reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v "ProductVersion" /t REG_SZ /d "Windows 10" /f
 reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v "TargetReleaseVersion" /t REG_DWORD /d "1" /f
 reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v "TargetReleaseVersionInfo" /t REG_SZ /d "1909" /f
-goto specify_finish
+goto :specify_finish
 
 :w10to_2004
 cls
@@ -6874,7 +7090,7 @@ echo %linetext%
 reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v "ProductVersion" /t REG_SZ /d "Windows 10" /f
 reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v "TargetReleaseVersion" /t REG_DWORD /d "1" /f
 reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v "TargetReleaseVersionInfo" /t REG_SZ /d "2004" /f
-goto specify_finish
+goto :specify_finish
 
 :w10to_20H2
 cls
@@ -6888,7 +7104,7 @@ echo %linetext%
 reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v "ProductVersion" /t REG_SZ /d "Windows 10" /f
 reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v "TargetReleaseVersion" /t REG_DWORD /d "1" /f
 reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v "TargetReleaseVersionInfo" /t REG_SZ /d "20H2" /f
-goto specify_finish
+goto :specify_finish
 
 :w10to_21H1
 cls
@@ -6902,7 +7118,7 @@ echo %linetext%
 reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v "ProductVersion" /t REG_SZ /d "Windows 10" /f
 reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v "TargetReleaseVersion" /t REG_DWORD /d "1" /f
 reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v "TargetReleaseVersionInfo" /t REG_SZ /d "21H1" /f
-goto specify_finish
+goto :specify_finish
 
 :w10to_21H2
 cls
@@ -6916,13 +7132,13 @@ echo %linetext%
 reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v "ProductVersion" /t REG_SZ /d "Windows 10" /f
 reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v "TargetReleaseVersion" /t REG_DWORD /d "1" /f
 reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v "TargetReleaseVersionInfo" /t REG_SZ /d "21H2" /f
-goto specify_finish
+goto :specify_finish
 
 :w10to_22H2
 cls
 echo.
 echo %linetop%
-echo pecify target Feature Update version to 22H2
+echo Specify target Feature Update version to 22H2
 echo %linebottom%
 echo.
 echo %processtext%
@@ -6930,7 +7146,21 @@ echo %linetext%
 reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v "ProductVersion" /t REG_SZ /d "Windows 10" /f
 reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v "TargetReleaseVersion" /t REG_DWORD /d "1" /f
 reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v "TargetReleaseVersionInfo" /t REG_SZ /d "22H2" /f
-goto specify_finish
+goto :specify_finish
+
+:w10to_2009
+cls
+echo.
+echo %linetop%
+echo Specify target Feature Update version to 2009
+echo %linebottom%
+echo.
+echo %processtext%
+echo %linetext%
+reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v "ProductVersion" /t REG_SZ /d "Windows 10" /f
+reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v "TargetReleaseVersion" /t REG_DWORD /d "1" /f
+reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v "TargetReleaseVersionInfo" /t REG_SZ /d "2009" /f
+goto :specify_finish
 
 rem ---START------------------------------
 :specifyTargetWindows11
@@ -6971,7 +7201,7 @@ echo %linetext%
 reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v "ProductVersion" /t REG_SZ /d "Windows 11" /f
 reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v "TargetReleaseVersion" /t REG_DWORD /d "1" /f
 reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v "TargetReleaseVersionInfo" /t REG_SZ /d "21H2" /f
-goto specify_finish
+goto :specify_finish
 
 :w11to_22H2
 cls
@@ -6985,7 +7215,7 @@ echo %linetext%
 reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v "ProductVersion" /t REG_SZ /d "Windows 11" /f
 reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v "TargetReleaseVersion" /t REG_DWORD /d "1" /f
 reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v "TargetReleaseVersionInfo" /t REG_SZ /d "22H2" /f
-goto specify_finish
+goto :specify_finish
 
 :w11to_23H2
 cls
@@ -6999,13 +7229,13 @@ echo %linetext%
 reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v "ProductVersion" /t REG_SZ /d "Windows 11" /f
 reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v "TargetReleaseVersion" /t REG_DWORD /d "1" /f
 reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v "TargetReleaseVersionInfo" /t REG_SZ /d "23H2" /f
-goto specify_finish
+goto :specify_finish
 
 :w11to_24H2
 cls
 echo.
 echo %linetop%
-echo pecify target Feature Update version to 24H2
+echo Specify target Feature Update version to 24H2
 echo %linebottom%
 echo.
 echo %processtext%
@@ -7013,7 +7243,7 @@ echo %linetext%
 reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v "ProductVersion" /t REG_SZ /d "Windows 11" /f
 reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v "TargetReleaseVersion" /t REG_DWORD /d "1" /f
 reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v "TargetReleaseVersionInfo" /t REG_SZ /d "24H2" /f
-goto specify_finish
+goto :specify_finish
 
 :specify_finish
 echo.
@@ -7046,6 +7276,151 @@ goto :supMenu_windows
 rem ---END--------------------------------
 
 rem ---START------------------------------
+:settingRequireSMBEncryption
+cls
+echo.
+echo           %line3%
+echo.
+echo                    Setting Require SMB Encryption on Windows:
+echo.
+echo                [1] Enable
+echo                [2] Disable
+echo                [3] Check
+echo.
+echo           %line3%
+echo.
+echo                [Q] Quit to Main Menu
+choice /c 123Q /n /m "Choice :> "
+set s_el=%errorlevel%
+if %s_el%==4 goto :supMenu_windows
+if %s_el%==3 goto :check_SMBEncryption
+if %s_el%==2 goto :disable_SMBEncryption
+if %s_el%==1 goto :enable_SMBEncryption
+goto :supMenu_windows
+
+:enable_SMBEncryption
+cls
+echo.
+echo %linetop%
+echo Enable Require SMB Encryption
+echo %linebottom%
+echo.
+echo %processtext%
+echo %linetext%
+echo.
+reg add "HKLM\SYSTEM\CurrentControlSet\Services\LanmanWorkstation\Parameters" /v "AllowInsecureGuestAuth" /t REG_DWORD /d "0" /f >nul
+powershell -command "Set-SmbClientConfiguration -RequireEncryption $true"
+echo.
+echo Press any key to continue.
+pause >nul
+goto :settingRequireSMBEncryption
+
+:disable_SMBEncryption
+cls
+echo.
+echo %linetop%
+echo Disable Require SMB Encryption
+echo %linebottom%
+echo.
+echo %processtext%
+echo %linetext%
+echo.
+reg add "HKLM\SYSTEM\CurrentControlSet\Services\LanmanWorkstation\Parameters" /v "AllowInsecureGuestAuth" /t REG_DWORD /d "1" /f >nul
+powershell -command "Set-SmbClientConfiguration -RequireEncryption $false"
+echo.
+echo Press any key to continue.
+pause >nul
+goto :settingRequireSMBEncryption
+
+:check_SMBEncryption
+cls
+echo.
+echo %linetop%
+echo Check Require SMB Encryption
+echo %linebottom%
+echo.
+powershell -command "Get-SmbClientConfiguration | FL RequireEncryption"
+echo.
+echo %processtext%
+echo %linetext%
+
+echo.
+echo Press any key to continue.
+pause >nul
+goto :settingRequireSMBEncryption
+rem ---END--------------------------------
+
+
+rem ---START------------------------------
+:settingDSCalways
+cls
+echo.
+echo           %line3%
+echo.
+echo                    Setting Digitally sign communications (always) on Windows:
+echo.
+echo                [1] Enable
+echo                [2] Disable
+echo                [3] Not Defined
+echo.
+echo           %line3%
+echo.
+echo                [Q] Quit to Main Menu
+choice /c 123Q /n /m "Choice :> "
+set s_el=%errorlevel%
+if %s_el%==4 goto :supMenu_windows
+if %s_el%==3 goto :notdefined_FeatureDSCalways
+if %s_el%==2 goto :disable_FeatureDSCalways
+if %s_el%==1 goto :enable_FeatureDSCalways
+goto :supMenu_windows
+
+:enable_FeatureDSCalways
+cls
+echo.
+echo %linetop%
+echo Enable Digitally sign communications (always)
+echo %linebottom%
+echo.
+echo %processtext%
+echo %linetext%
+reg add "HKLM\SYSTEM\CurrentControlSet\Services\LanmanWorkstation\Parameters" /v "RequireSecuritySignature" /t REG_DWORD /d "1" /f >nul
+echo.
+echo Press any key to continue.
+pause >nul
+goto :supMenu_windows
+
+:disable_FeatureDSCalways
+cls
+echo.
+echo %linetop%
+echo Disable Digitally sign communications (always)
+echo %linebottom%
+echo.
+echo %processtext%
+echo %linetext%
+reg add "HKLM\SYSTEM\CurrentControlSet\Services\LanmanWorkstation\Parameters" /v "RequireSecuritySignature" /t REG_DWORD /d "0" /f >nul
+echo.
+echo Press any key to continue.
+pause >nul
+goto :supMenu_windows
+
+:notdefined_FeatureDSCalways
+cls
+echo.
+echo %linetop%
+echo Disable Digitally sign communications (always)
+echo %linebottom%
+echo.
+echo %processtext%
+echo %linetext%
+reg delete "HKLM\SYSTEM\CurrentControlSet\Services\LanmanWorkstation\Parameters" /v "RequireSecuritySignature" /f >nul
+echo.
+echo Press any key to continue.
+pause >nul
+goto :supMenu_windows
+rem ---END--------------------------------
+
+rem ---START------------------------------
 :changeComputerName
 cls
 echo.
@@ -7058,45 +7433,45 @@ echo %linetext%
 setlocal
 For /F "tokens=2 Delims==" %%A In ('WMIC Bios Get SerialNumber /Value') Do (
     For /F "Delims=" %%B In ("%%A") Do (
+        ::IF "%%B"=="" set "%%B=PC-%RAND:~0,7%"
+        IF [%%B] == [] set "%%B=PC-%RAND:~0,7%"
         Call :RenamePC "%%B"
-        Call :Ask4Reboot
+        Call :prompt_rebootvb
     )
 )
 pause & exit /B
+
 ::**********************************************************************
 :RenamePC
 WMIC ComputerSystem where Name="%ComputerName%" call Rename Name="%~1" > nul
 exit /B
-::***********************************************************************
-:Ask4Reboot
-(
-    echo    Set Ws = CreateObject("wscript.shell"^)
-    echo    Answ = MsgBox("Did you want to reboot your computer ?"_
-    echo ,VbYesNo+VbQuestion,"Did you want to reboot your computer ?"^)
-    echo    If Answ = VbYes then 
-    echo        Return = Ws.Run("cmd /c shutdown -r -t 30 -c ""You need to reboot in 30 second."" -f",0,True^)
-    echo    Else
-    echo        wscript.Quit(1^)
-    echo    End If
-)>"%tmp%\%~n0.vbs"
-Start "" "%tmp%\%~n0.vbs"
 endlocal
 
-rem setlocal
-rem wmic bios get serialnumber | find /I /V "SerialNumber" > "%temp%\sn.txt"
-rem set /p comp_name=<"%temp%\sn.txt"
-rem wmic computersystem where name="%computername%" rename name=%comp_name%
-rem del "%temp%\sn.txt"
-rem endlocal
-exit /B
+rem ---START------------------------------
+:installWMIC
+cls
+echo.
+echo %linetop%
+echo Install WMIC to a Windows 11 24H2
+echo %linebottom%
+echo.
+echo %processtext%
+echo %linetext%
+echo.
+powershell -command "DISM /Online /Add-Capability /CapabilityName:WMIC~~~~"
+echo.
+echo Press any key to continue.
+pause >nul
+goto :supMenu_windows
+rem ---END--------------------------------
 
 rem ---START------------------------------
-:configRPC
+:settingRPC
 cls
 echo.
 echo           %line3%
 echo.
-echo                    Configure RPC connection settings on Windows:
+echo                    Setting RPC connection settings on Windows:
 echo.
 echo                [1] Enable
 echo                [2] Disable
@@ -7150,12 +7525,12 @@ goto :supMenu_windows
 rem ---END--------------------------------
 
 rem ---START------------------------------
-:configShare
+:settingShare
 cls
 echo.
 echo           %line3%
 echo.
-echo                    Configure and access shared folders on Windows:
+echo                    Setting and access shared folders on Windows:
 echo.
 echo                [1] Enable
 echo                [2] Disable
@@ -7208,12 +7583,12 @@ goto :supMenu_windows
 rem ---END--------------------------------
 
 rem ---START------------------------------
-:configLPR_LPD
+:settingLPR_LPD
 cls
 echo.
 echo           %line3%
 echo.
-echo                    Configure Feature LPR/LPD Printer in Windows:
+echo                    Setting Feature LPR/LPD Printer in Windows:
 echo.
 echo                [1] Enable
 echo                [2] Disable
@@ -7300,13 +7675,15 @@ echo                [4] Windows 10/11 Education VL
 echo                [5] Windows 10/11 Enterprise
 echo                [6] Windows 10/11 Enterprise VL
 echo                [7] Windows 10/11 Single Language to Home
+echo                [8] Check Windows Available Editions
 echo.
 echo           %line3%
 echo.
 echo                [Q] Quit to Main Menu
-choice /c 1234567Q /n /m "Choice :> "
+choice /c 12345678Q /n /m "Choice :> "
 set s_el=%errorlevel%
-if %s_el%==8 goto :supMenu_windows
+if %s_el%==9 goto :supMenu_windows
+if %s_el%==8 goto :checkWindowsEdition
 if %s_el%==7 goto :wto_home
 if %s_el%==6 goto :wto_ent_vl
 if %s_el%==5 goto :wto_ent
@@ -7398,7 +7775,7 @@ echo %linetext%
 sc config LicenseManager start= auto & net start LicenseManager >nul
 sc config wuauserv start= auto & net start wuauserv >nul
 changepk /ProductKey NPPR9-FWDCX-D2C8J-H872K-2YT43
-goto finish
+goto changeWindows_finish
 
 :wto_home
 cls
@@ -7414,6 +7791,21 @@ sc config wuauserv start= auto & net start wuauserv >nul
 changepk /ProductKey TX9XD-98N7V-6WMQ6-BX7FG-H8Q99
 goto changeWindows_finish
 
+:checkWindowsEdition
+cls
+echo.
+echo %linetop%
+echo Check Windows Available Editions
+echo %linebottom%
+echo.
+echo %processtext%
+echo %linetext%
+dism /online /english /Get-TargetEditions
+echo.
+echo Press any key to continue.
+pause >nul
+goto :changeWindowsEdition
+
 :changeWindows_finish
 echo.
 echo Change Windows 10/11 Edition Successfully
@@ -7425,12 +7817,12 @@ rem ---END--------------------------------
 
 rem ---START------------------------------
 rem Tablet Mode
-:configTabletMode
+:settingTabletMode
 cls
 echo.
 echo           %line3%
 echo.
-echo                    Configure Feature Tablet Mode in Windows:
+echo                    Setting Feature Tablet Mode in Windows:
 echo.
 echo                [1] Enable
 echo                [2] Disable
@@ -7475,27 +7867,6 @@ echo Press any key to continue.
 pause >nul
 goto :supMenu_windows
 rem ---END--------------------------------
-
-rem ---START------------------------------
-rem dism /Online /Get-TargetEditions
-:getTargetEditions
-Dism /Online /Get-TargetEditions
-echo.
-echo Press any key to continue.
-pause >nul
-goto :supMenu_windows
-rem ---END--------------------------------
-
-rem ---START------------------------------
-rem Windows Package Manager Upgrade
-:wingetUpgradeAll
-winget upgrade --all --include-unknown
-echo.
-echo Press any key to continue.
-pause >nul
-goto :supMenu_windows
-rem ---END--------------------------------
-
 
 rem ---START------------------------------
 rem Change AnyDesk Address Name or Reset AnyDesk ID Address
@@ -7826,8 +8197,35 @@ echo %linetop%
 echo OEM Product Key View
 echo %linebottom%
 echo.
-wmic path SoftwareLicensingService get OA3xOriginalProductKey
-wmic path SoftwareLicensingService get OA3xOriginalProductKey > %UserProfile%\Desktop\OA3xOriginalProductKey.txt
+setlocal
+powershell -nop -c "(Get-WmiObject -query 'select * from SoftwareLicensingService').OA3xOriginalProductKey"
+for /f "tokens=* delims=" %%a in ('powershell -nop -c "(Get-WmiObject SoftwareLicensingService).OA3xOriginalProductKey"') do set "OS_ORIGINALPRODUCTKEY=%%a"
+slmgr /ipk %OS_ORIGINALPRODUCTKEY%
+slmgr /ato
+endlocal
+echo.
+echo %exittext%
+echo %linetext%
+echo.
+echo Press any key to continue.
+pause >nul
+goto :supMenu_windows
+rem ---END--------------------------------
+
+rem ---START------------------------------
+rem Clearing the Windows Print Spooler
+:clearWindowsPrintSpooler
+cls
+echo.
+echo %linetop%
+echo Clear Windows Print Spooler
+echo %linebottom%
+echo.
+setlocal
+net stop spooler /y
+del %systemroot%\System32\spool\printers\* /Q
+net start spooler /y
+endlocal
 echo.
 echo %exittext%
 echo %linetext%
@@ -7852,7 +8250,7 @@ pushd "%~dp0"
 DIR /b %SystemRoot%\servicing\Packages\Microsoft-Windows-GroupPolicy-ClientExtensions-Package~3*.mum >gpedit.log
 DIR /B %SystemRoot%\servicing\Packages\Microsoft-Windows-GroupPolicy-ClientTools-Package~3*.mum >>gpedit.log
 FOR /F %%i in ('findstr /i . gpedit.log 2^>nul') DO DISM /Online /NoRestart /Add-Package:"%SystemRoot%\servicing\Packages\%%i"
-DEL /S /F /Q gpedit.log
+DEL /S /F /Q gpedit.log >nul 2>&1
 echo.
 echo Installation complete.
 echo.
@@ -7866,12 +8264,12 @@ rem ---END--------------------------------
 
 rem ---START------------------------------
 rem Microsoft Windows Firewall
-:configWindowsFirewall
+:settingWindowsFirewall
 cls
 echo.
 echo           %line3%
 echo.
-echo                    Configure Feature Windows Firewall in Windows:
+echo                    Setting Feature Windows Firewall in Windows:
 echo.
 echo                [1] Enable
 echo                [2] Disable
@@ -7901,7 +8299,7 @@ netsh advfirewall set allprofiles state on
 echo.
 echo Press any key to continue.
 pause >nul
-goto :configWindowsFirewall
+goto :settingWindowsFirewall
 
 :disable_WindowsFirewall
 cls
@@ -7916,7 +8314,7 @@ netsh advfirewall set allprofiles state off
 echo.
 echo Press any key to continue.
 pause >nul
-goto :configWindowsFirewall
+goto :settingWindowsFirewall
 
 :status_WindowsFirewall
 cls
@@ -7931,17 +8329,17 @@ netsh advfirewall show allprofiles
 echo.
 echo Press any key to continue.
 pause >nul
-goto :configWindowsFirewall
+goto :settingWindowsFirewall
 rem ---END--------------------------------
 
 rem ---START------------------------------
 rem Microsoft Hyper V
-:configHyperV
+:settingHyperV
 cls
 echo.
 echo           %line3%
 echo.
-echo                    Configure Feature Microsoft Hyper V in Windows:
+echo                    Setting Feature Microsoft Hyper V in Windows:
 echo.
 echo                [1] Enable
 echo                [2] Disable
@@ -7989,12 +8387,12 @@ rem ---END--------------------------------
 
 rem ---START------------------------------
 rem Virtual Machine Platform
-:configVirtualMachinePlatform
+:settingVirtualMachinePlatform
 cls
 echo.
 echo           %line3%
 echo.
-echo                    Configure Feature Virtual Machine Platform in Windows:
+echo                    Setting Feature Virtual Machine Platform in Windows:
 echo.
 echo                [1] Enable
 echo                [2] Disable
@@ -8063,13 +8461,13 @@ goto :supMenu_windows
 rem ---END--------------------------------
 
 rem ---START------------------------------
-rem Configure Feature Sign-In Button in Microsoft Office 2016-2024
-:configSignIn2016
+rem Setting Feature Sign-In Button in Microsoft Office 2016-2024
+:settingSignIn2016
 cls
 echo.
 echo           %line3%
 echo.
-echo                    Configure Feature Sign-In Button in Office 2016-2024:
+echo                    Setting Feature Sign-In Button in Office 2016-2024:
 echo.
 echo                [1] Enable
 echo                [2] Disable
@@ -8098,7 +8496,7 @@ reg add HKEY_CURRENT_USER\Software\Policies\Microsoft\Office\16.0\Common\SignIn 
 echo.
 echo Press any key to continue.
 pause >nul
-goto :configSignIn2016
+goto :settingSignIn2016
 
 :disable_SignIn2016
 cls
@@ -8114,17 +8512,17 @@ reg add HKEY_CURRENT_USER\Software\Policies\Microsoft\Office\16.0\Common\SignIn 
 echo.
 echo Press any key to continue.
 pause >nul
-goto :configSignIn2016
+goto :settingSignIn2016
 rem ---END--------------------------------
 
 rem ---START------------------------------
-rem Configure Feature Sign-In Button in Microsoft Office 2013
-:configSignIn2013
+rem Setting Feature Sign-In Button in Microsoft Office 2013
+:settingSignIn2013
 cls
 echo.
 echo           %line3%
 echo.
-echo                    Configure Feature Sign-In Button in Office 2013:
+echo                    Setting Feature Sign-In Button in Office 2013:
 echo.
 echo                [1] Enable
 echo                [2] Disable
@@ -8153,7 +8551,7 @@ reg add HKEY_CURRENT_USER\Software\Policies\Microsoft\Office\15.0\Common\SignIn 
 echo.
 echo Press any key to continue.
 pause >nul
-goto :configSignIn2013
+goto :settingSignIn2013
 
 :disable_SignIn2013
 cls
@@ -8169,7 +8567,7 @@ reg add HKEY_CURRENT_USER\Software\Policies\Microsoft\Office\15.0\Common\SignIn 
 echo.
 echo Press any key to continue.
 pause >nul
-goto :configSignIn2013
+goto :settingSignIn2013
 rem ---END--------------------------------
 
 rem ---START------------------------------
@@ -8322,7 +8720,7 @@ foreach($n in $subkeys){Own1 "$k\$n"}}}};Own1 $rk[1];if($env:VO){get-acl Registr
 rem ---END--------------------------------
 
 rem ---START------------------------------
-:configWindowsLanguage
+:settingWindowsLanguage
 cls
 echo.
 if exist "%Windir%\Sysnative\reg.exe" (set "SysPath=%Windir%\Sysnative") else (set "SysPath=%Windir%\System32")
@@ -8559,9 +8957,10 @@ echo either manually, or check Windows Update now.
 echo.
 echo You must restart the system to complete the display language change
 echo.
-choice /C 10 /N /M "Press 1 to restart now, or 0 to exit: "
-if errorlevel 2 goto :eof
-if errorlevel 1 SHUTDOWN /R /T 00
+::choice /C 10 /N /M "Press 1 to restart now, or 0 to exit: "
+::if errorlevel 2 goto :eof
+::if errorlevel 1 SHUTDOWN /R /T 00
+call :prompt_rebootdos
 
 :ar-SA
 set "LangName=Arabic"
@@ -8880,11 +9279,524 @@ echo %linebottom%
 echo.
 echo %processtext%
 echo %linetext%
-reg add "HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Microsoft Defender" /v DisableAntiSpyware /t REG_DWORD /d 1 /f >nul
+echo.
+echo [!] Checking for Administrator privileges.
+echo %processtext%
+net session >nul 2>&1
+if %errorLevel% NEQ 0 (
+    echo [!] Please run this script as Administrator.
+    pause
+    exit /b
+)
+powershell -command "Set-MpPreference -DisableIntrusionPreventionSystem $true -DisableIOAVProtection $true -DisableRealtimeMonitoring $true -DisableScriptScanning $true -EnableControlledFolderAccess Disabled -EnableNetworkProtection AuditMode -Force -MAPSReporting Disabled -SubmitSamplesConsent NeverSend" >nul
+echo.
+echo [*] Stopping and removing Defender services.
+echo %processtext%
+:: Windows Defender (Win7/10/11)
+sc stop WinDefend >nul 2>&1
+sc delete WinDefend >nul 2>&1
+:: Sense service (Win10/11 only)
+sc stop Sense >nul 2>&1
+sc delete Sense >nul 2>&1
+:: SecurityHealthService (Win10/11)
+sc stop SecurityHealthService >nul 2>&1
+sc delete SecurityHealthService >nul 2>&1
+echo.
+echo [*] Removing Defender drivers (Win10/11).
+echo %processtext%
+sc delete WdFilter >nul 2>&1
+sc delete WdBoot >nul 2>&1
+sc delete WdNisDrv >nul 2>&1
+sc delete WdNisSvc >nul 2>&1
+echo.
+echo [*] Applying Registry changes to disable Defender and Telemetry.
+echo %processtext%
+:: Disable Defender and Real-Time Protection
+reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows Defender" /v DisableAntiSpyware /t REG_DWORD /d 1 /f >nul
+reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows Defender\Real-Time Protection" /v DisableRealtimeMonitoring /t REG_DWORD /d 1 /f >nul
+:: Disable SpyNet/Telemetry
+reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows Defender\Spynet" /v SubmitSamplesConsent /t REG_DWORD /d 2 /f >nul
+reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows Defender\Spynet" /v SpynetReporting /t REG_DWORD /d 0 /f >nul
+echo.
+echo [*] Disabling Windows Defender Scheduled Tasks.
+echo %processtext%
+:: Loop through Defender tasks
+for %%T in (
+    "Microsoft\Windows Defender\Scheduled Scan"
+    "Microsoft\Windows Defender\Verification"
+    "Microsoft\Windows Defender\Windows Defender Cache Maintenance"
+    "Microsoft\Windows Defender\Windows Defender Cleanup"
+    "Microsoft\Windows Defender\Windows Defender Scheduled Scan"
+    "Microsoft\Windows Defender\Windows Defender Verification"
+) do (
+    schtasks /Change /TN %%T /Disable >nul 2>&1
+)
+echo.
+echo [*] Removing Defender context menu entries.
+echo %processtext%
+reg delete "HKCR\*\shellex\ContextMenuHandlers\EPP" /f >nul 2>&1
+reg delete "HKCR\Directory\shellex\ContextMenuHandlers\EPP" /f >nul 2>&1
+reg delete "HKCR\Drive\shellex\ContextMenuHandlers\EPP" /f >nul 2>&1
+echo.
+echo [*] Hiding Antivirus UI section from Windows Security (Win10/11).
+echo %processtext%
+reg add "HKLM\SOFTWARE\Microsoft\Windows Security Health\State" /v DisableAVCheck /t REG_DWORD /d 1 /f >nul
+echo.
+echo %noticetext%
+echo %linetext%
+echo [!] Windows Defender components have been disabled and removed.
+echo [!] Please reboot your computer to complete the process.
+echo.
+call :prompt_rebootdos
+::echo Press any key to continue.
+::pause >nul
+::goto :MainMenu
+rem ---END--------------------------------
+
+:windows_UpdateTroubleshooter
+cls
+echo.
+echo %linetop%
+echo Windows Update Troubleshooter
+echo %linebottom%
+echo.
+echo %processtext%
+echo %linetext%
+@(set '(=)||' <# lean and mean cmd / ps1 hybrid, can paste into powershell console #> @'
+@title Windows Update Troubleshooter
+
+::# elevate with native shell by AveYo
+>nul reg add hkcu\software\classes\.Admin\shell\runas\command /f /ve /d "cmd /x /d /r set \"f0=%%2\"& call \"%%2\" %%3"& set _= %*
+>nul fltmc|| if "%f0%" neq "%~f0" (cd.>"%temp%\runas.Admin" & start "%~n0" /high "%temp%\runas.Admin" "%~f0" "%_:"=""%" & exit /b)
+
+::# stop pending updates
+for /f "tokens=6 delims=[]. " %%b in ('ver') do set /a BUILD=%%b
+set KILL=& set UPDATE=windowsupdatebox updateassistant updateassistantcheck windows10upgrade windows10upgraderapp
+for %%w in (dism setuphost tiworker usoclient sihclient wuauclt culauncher sedlauncher osrrb ruximics ruximih disktoast eosnotify
+  musnotification musnotificationux musnotifyicon monotificationux mousocoreworker %UPDATE%) do call set KILL=/im %%w.exe %%KILL%%
+taskkill /f %KILL% 2>nul & dism /cleanup-wim & bitsadmin /reset /allusers
+for %%w in (msiserver wuauserv bits usosvc dosvc cryptsvc) do start /min cmd /d /x /c net stop %%w /y
+taskkill /f %KILL% /im systemsettings.exe 2>nul & timeout 7 /nobreak >nul
+for /f tokens^=3^,5^ delims^=^" %%X in ('tasklist /fo csv /nh /svc /fi "services eq wuauserv"') do (
+  taskkill /f /pid %%X & for %%w in (%%Y) do if /i %%w neq wuauserv if /i %%w neq bits if /i %%w neq usosvc net start %%w /y
+)
+
+::# clear update logs
+set "DATA=%ProgramData%" & set "LOG=%SystemRoot%\Logs\WindowsUpdate" & set "SRC=%SystemDrive%\$WINDOWS.~BT\Sources"
+del /f /s /q "%DATA%\USOShared\Logs\*" "%DATA%\USOPrivate\UpdateStore\*" "%DATA%\Microsoft\Network\Downloader\*" >nul 2>nul
+powershell -nop -c "try {$null=Get-WindowsUpdateLog -LogPath $env:temp\WU.log -ForceFlush -Confirm:$false -ea 0} catch {}" >nul
+rmdir /s /q "%LOG%" "%ProgramFiles%\UNP" "%SystemRoot%\SoftwareDistribution" "%SystemDrive%\Windows.old\Cleanup" >nul 2>nul
+if exist %SRC%\setuphost.exe if exist %SRC%\setupprep.exe start "cleanup" /wait %SRC%\setupprep.exe /cleanup /quiet
+
+::# remove forced upgraders and update remediators
+call "%SystemRoot%\UpdateAssistant\Windows10Upgrade.exe" /ForceUninstall 2>nul
+call "%SystemDrive%\Windows10Upgrade\Windows10UpgraderApp.exe" /ForceUninstall 2>nul
+msiexec /X {1BA1133B-1C7A-41A0-8CBF-9B993E63D296} /qn 2>nul && echo;Removed osrss
+msiexec /X {8F2D6CEB-BC98-4B69-A5C1-78BED238FE77} /qn 2>nul && echo;Removed rempl, ruxim
+msiexec /X {0746492E-47B6-4251-940C-44462DFD74BB} /qn 2>nul && echo;Removed CUAssistant
+msiexec /X {76A22428-2400-4521-96AF-7AC4A6174CA5} /qn 2>nul && echo;Removed UpdateAssistant
+echo;
+
+::# start update services
+net start bits /y & net start wuauserv /y & net start usosvc /y 2>nul & start /min UsoClient RefreshSettings
+echo run again / reboot if there are still pending files or services & pause
+exit /b
+
+'@); $0 = "$env:temp\windows_update_refresh.bat"; ${(=)||} -split "\r?\n" | out-file $0 -encoding default -force; & $0
+# press enter
+
+:delete_WindowsOld
+cls
+echo.
+echo %linetop%
+echo Remove Windows.old folder
+echo %linebottom%
+echo.
+echo %processtext%
+echo %linetext%
+takeown /F C:\Windows.old\* /R /A
+cacls C:\Windows.old\*.* /T /grant administrators:F
+rmdir /S /Q C:\Windows.old\
+echo %exittext%
+echo %linetext%
 echo.
 echo Press any key to continue.
 pause >nul
-goto :MainMenu
+goto :supMenu_Troubleshooter
+rem ---END--------------------------------
+
+rem ---START------------------------------
+rem Clear Font Cache
+:windows_FontCacheTroubleshooter
+cls
+echo.
+echo %linetop%
+echo Font Cache Troubleshooter
+echo %linebottom%
+echo.
+net stop FontCache
+del /q /f /s /a %windir%\ServiceProfiles\LocalService\AppData\Local\FontCache\*.dat
+del /q /f /s /a %localappdata%\FontCache\*.dat
+net start FontCache
+Call :prompt_rebootvb
+echo %exittext%
+echo %linetext%
+echo.
+echo Press any key to continue.
+pause >nul
+goto :supMenu_Troubleshooter
+rem ---END--------------------------------
+
+rem ---START------------------------------
+rem flushed the DNS Resolver Cache.
+:windows_Flushdns
+cls
+echo.
+echo %linetop%
+echo Flush DNS Resolver Cache
+echo %linebottom%
+echo.
+ipconfig /flushdns
+echo.
+echo %exittext%
+echo %linetext%
+echo.
+echo Press any key to continue.
+pause >nul
+goto :supMenu_Troubleshooter
+rem ---END--------------------------------
+
+rem ---START------------------------------
+rem flushed the DNS Resolver Cache.
+:windows_backup
+cls
+echo.
+echo %linetop%
+echo Font Cache Troubleshooter
+echo %linebottom%
+echo.
+ipconfig /flushdns
+echo.
+echo %exittext%
+echo %linetext%
+echo.
+echo Press any key to continue.
+pause >nul
+goto :supMenu_Troubleshooter
+rem ---END--------------------------------
+
+rem ---START------------------------------
+rem Windows Package Manager Install
+:installFramework
+cls
+echo.
+echo %linetop%
+echo Install Framework Runtime
+echo %linebottom%
+echo.
+echo Microsoft DotNet DesktopRuntime 3.1-9.0 / Microsoft DotNet Runtime 3.1-9.0
+echo Microsoft Visual C++ 2015 UWP Desktop Runtime Package / Microsoft Visual C++ 2005-2022 Redistributable
+echo.
+setlocal EnableDelayedExpansion
+:: List of application IDs
+
+set apps=Microsoft.WindowsTerminal Microsoft.PowerToys Microsoft.DirectX Microsoft.DotNet.DesktopRuntime.3_1 Microsoft.DotNet.Runtime.3_1 Microsoft.DotNet.DesktopRuntime.5 Microsoft.DotNet.Runtime.5 Microsoft.DotNet.DesktopRuntime.6 Microsoft.DotNet.Runtime.6 Microsoft.DotNet.DesktopRuntime.7 Microsoft.DotNet.Runtime.7 Microsoft.DotNet.DesktopRuntime.8 Microsoft.DotNet.Runtime.8 Microsoft.DotNet.DesktopRuntime.9 Microsoft.DotNet.Runtime.9 Microsoft.VCLibs.Desktop.14 Microsoft.VCRedist.2005.x64 Microsoft.VCRedist.2005.x86 Microsoft.VCRedist.2008.x64 Microsoft.VCRedist.2008.x86 Microsoft.VCRedist.2010.x64 Microsoft.VCRedist.2010.x86 Microsoft.VCRedist.2012.x64 Microsoft.VCRedist.2012.x86 Microsoft.VCRedist.2013.x64 Microsoft.VCRedist.2013.x86 Microsoft.VCRedist.2015+.x64 Microsoft.VCRedist.2015+.x86
+
+for %%A in (%apps%) do (
+    echo ---------------------------------------
+    echo Processing %%A...
+
+    :: Check if the app is installed by capturing the list output
+    %_WindowsApps%\winget list --id %%A > temp_check.txt 2>&1
+
+    findstr /C:"No installed package found" temp_check.txt >nul
+    if !errorlevel! equ 0 (
+        echo %%A not installed. Installing...
+        %_WindowsApps%\winget install -e --force --id %%A --silent --accept-source-agreements --accept-package-agreements
+    ) else (
+        echo %%A is installed. Attempting upgrade...
+        %_WindowsApps%\winget upgrade -e --force --id %%A --silent --accept-source-agreements --accept-package-agreements
+        if !errorlevel! neq 0 (
+            echo Upgrade failed for %%A or no update available.
+        )
+    )
+    echo.
+)
+del temp_check.txt >nul 2>&1
+del service.conf.lock >nul 2>&1
+del system.conf.lock >nul 2>&1
+endlocal
+echo %exittext%
+echo %linetext%
+echo.
+echo Press any key to continue.
+pause >nul
+goto :supMenu_Store
+rem ---END--------------------------------
+
+rem ---START------------------------------
+rem Windows Package Manager Install
+:installSoftware
+cls
+echo.
+echo %linetop%
+echo Windows Package Manager Install
+echo %linebottom%
+echo.
+setlocal EnableDelayedExpansion
+:: List of application IDs
+
+::Outlook for Windows 9NRX63209R7B
+::Microsoft Photos 9WZDNCRFJBH4
+::Microsoft Copilot 9NHT9RB2F4HD
+::Adobe Acrobat Reader DC XPDP273C0XHQH2
+::LINE Desktop XPFCC4CD725961
+::Zoom Workplace XP99J3KP4XZ4VV 
+::Apple TV 9NM4T8B9JQZ1
+::Apple Music 9PFHDD62MXS1
+::Apple Devices 9NP83LWLPZ9K
+::iCloud 9PKTQ5699M62
+::iTunes 9PB2MZ1ZMB1S
+::CapCut XP9KN75RRB9NHS
+::Canva XP8K17RNMM8MTN
+set apps=Microsoft.WindowsTerminal Microsoft.Edge AnyDesk.AnyDesk TeamViewer.TeamViewer Microsoft.Teams Google.Chrome Mozilla.Firefox.th VideoLAN.VLC RARLab.WinRAR XP9KN75RRB9NHS XP8K17RNMM8MTN 9NRX63209R7B 9WZDNCRFJBH4 9NHT9RB2F4HD XPDP273C0XHQH2 XPFCC4CD725961 XP99J3KP4XZ4VV Apple.AppleSoftwareUpdate Apple.AppleMobileDeviceSupport Apple.AppleApplicationSupport.x64 Apple.AppleApplicationSupport.x86 9NM4T8B9JQZ1 9PFHDD62MXS1 9NP83LWLPZ9K 9PKTQ5699M62 9PB2MZ1ZMB1S
+
+for %%A in (%apps%) do (
+    echo ---------------------------------------
+    echo Processing %%A...
+
+    :: Check if the app is installed by capturing the list output
+    %_WindowsApps%\winget list --id %%A > temp_check.txt 2>&1
+
+    findstr /C:"No installed package found" temp_check.txt >nul
+    if !errorlevel! equ 0 (
+        echo %%A not installed. Installing...
+        %_WindowsApps%\winget install -e --force --id %%A --silent --accept-source-agreements --accept-package-agreements
+    ) else (
+        echo %%A is installed. Attempting upgrade...
+        %_WindowsApps%\winget upgrade -e --force --id %%A --silent --accept-source-agreements --accept-package-agreements
+        if !errorlevel! neq 0 (
+            echo Upgrade failed for %%A or no update available.
+        )
+    )
+    echo.
+)
+del temp_check.txt >nul 2>&1
+del service.conf.lock >nul 2>&1
+del system.conf.lock >nul 2>&1
+endlocal
+echo %exittext%
+echo %linetext%
+echo.
+echo Press any key to continue.
+pause >nul
+goto :supMenu_Store
+rem ---END--------------------------------
+
+rem ---START------------------------------
+rem Windows Package Manager Install
+:installHardwarediagnostics
+cls
+echo.
+echo %linetop%
+echo Install Hardware Diagnostics
+echo %linebottom%
+echo.
+echo CPUID CPU-Z / Piriform Speccy / TechPowerUp.GPU-Z / HWiNFO®
+echo.
+setlocal EnableDelayedExpansion
+:: List of application IDs
+
+set apps=CPUID.CPU-Z Piriform.Speccy TechPowerUp.GPU-Z REALiX.HWiNFO 
+
+for %%A in (%apps%) do (
+    echo ---------------------------------------
+    echo Processing %%A...
+
+    :: Check if the app is installed by capturing the list output
+    %_WindowsApps%\winget list --id %%A > temp_check.txt 2>&1
+
+    findstr /C:"No installed package found" temp_check.txt >nul
+    if !errorlevel! equ 0 (
+        echo %%A not installed. Installing...
+        %_WindowsApps%\winget install -e --force --id %%A --silent --accept-source-agreements --accept-package-agreements
+    ) else (
+        echo %%A is installed. Attempting upgrade...
+        %_WindowsApps%\winget upgrade -e --force --id %%A --silent --accept-source-agreements --accept-package-agreements
+        if !errorlevel! neq 0 (
+            echo Upgrade failed for %%A or no update available.
+        )
+    )
+    echo.
+)
+del temp_check.txt >nul 2>&1
+del service.conf.lock >nul 2>&1
+del system.conf.lock >nul 2>&1
+endlocal
+echo %exittext%
+echo %linetext%
+echo.
+echo Press any key to continue.
+pause >nul
+goto :supMenu_Store
+rem ---END--------------------------------
+
+
+rem ---START------------------------------
+rem Windows Package Manager Install
+:installNetSpeedTest
+cls
+echo.
+echo %linetop%
+echo Install Net Speed Test
+echo %linebottom%
+echo.
+echo Speedtest by Ookla / nPerf Speed Test
+echo.
+setlocal EnableDelayedExpansion
+:: List of application IDs
+
+set apps=Ookla.Speedtest.Desktop nPerf.nPerf
+
+for %%A in (%apps%) do (
+    echo ---------------------------------------
+    echo Processing %%A...
+
+    :: Check if the app is installed by capturing the list output
+    %_WindowsApps%\winget list --id %%A > temp_check.txt 2>&1
+
+    findstr /C:"No installed package found" temp_check.txt >nul
+    if !errorlevel! equ 0 (
+        echo %%A not installed. Installing...
+        %_WindowsApps%\winget install -e --force --id %%A --silent --accept-source-agreements --accept-package-agreements
+    ) else (
+        echo %%A is installed. Attempting upgrade...
+        %_WindowsApps%\winget upgrade -e --force --id %%A --silent --accept-source-agreements --accept-package-agreements
+        if !errorlevel! neq 0 (
+            echo Upgrade failed for %%A or no update available.
+        )
+    )
+    echo.
+)
+del temp_check.txt >nul 2>&1
+del service.conf.lock >nul 2>&1
+del system.conf.lock >nul 2>&1
+endlocal
+echo %exittext%
+echo %linetext%
+echo.
+echo Press any key to continue.
+pause >nul
+goto :supMenu_Store
+rem ---END--------------------------------
+
+
+rem ---START------------------------------
+rem Windows Package Manager Install
+:installSocial
+cls
+echo.
+echo %linetop%
+echo Install Application
+echo %linebottom%
+echo.
+echo Facebook / Twitter / Instagram / Threads, an Instagram app / TikTok
+echo.
+setlocal EnableDelayedExpansion
+:: List of application IDs
+
+::Facebook 9WZDNCRFJ2WL
+::Twitter 9WZDNCRFJ140 
+::Instagram 9NBLGGH5L9XT
+::Threads, an Instagram app 9MXBP1FB84CQ
+::TikTok 9NH2GPH4JZS4
+set apps=9WZDNCRFJ2WL 9WZDNCRFJ140 9NBLGGH5L9XT 9MXBP1FB84CQ 9NH2GPH4JZS4
+
+for %%A in (%apps%) do (
+    echo ---------------------------------------
+    echo Processing %%A...
+
+    :: Check if the app is installed by capturing the list output
+    %_WindowsApps%\winget list --id %%A > temp_check.txt 2>&1
+
+    findstr /C:"No installed package found" temp_check.txt >nul
+    if !errorlevel! equ 0 (
+        echo %%A not installed. Installing...
+        %_WindowsApps%\winget install -e --force --id %%A --silent --accept-source-agreements --accept-package-agreements
+    ) else (
+        echo %%A is installed. Attempting upgrade...
+        %_WindowsApps%\winget upgrade -e --force --id %%A --silent --accept-source-agreements --accept-package-agreements
+        if !errorlevel! neq 0 (
+            echo Upgrade failed for %%A or no update available.
+        )
+    )
+    echo.
+)
+del temp_check.txt >nul 2>&1
+del service.conf.lock >nul 2>&1
+del system.conf.lock >nul 2>&1
+endlocal
+echo %exittext%
+echo %linetext%
+echo.
+echo Press any key to continue.
+pause >nul
+goto :supMenu_Store
+rem ---END--------------------------------
+
+rem ---START------------------------------
+rem Windows Package Manager Upgrade
+:upgradeSoftwere
+cls
+echo.
+echo %linetop%
+echo Windows Package Manager Upgrade
+echo %linebottom%
+echo.
+setlocal EnableDelayedExpansion
+%_WindowsApps%\winget upgrade --all --include-unknown
+endlocal
+del service.conf.lock >nul 2>&1
+del system.conf.lock >nul 2>&1
+echo %exittext%
+echo %linetext%
+echo.
+echo Press any key to continue.
+pause >nul
+goto :supMenu_Store
+rem ---END--------------------------------
+
+rem ---START------------------------------
+rem Windows Package Manager Upgrade
+:openHosts
+cls
+setlocal EnableDelayedExpansion
+attrib -s -h -r "%windir%\system32\drivers\etc\hosts" /s /d
+start notepad %windir%\system32\drivers\etc\hosts
+endlocal
+goto :supMenu_Troubleshooter
+exit /b
+rem ---END--------------------------------
+
+
+rem ---START------------------------------
+rem Windows Package Manager Upgrade
+:install_NetFx3
+cls
+echo.
+echo %linetop%
+echo Install NET Framework 3.5 (Online)
+echo %linebottom%
+echo.
+setlocal EnableDelayedExpansion
+DISM /Online /Enable-Feature /FeatureName:NetFx3 /All 
+endlocal
+echo %exittext%
+echo %linetext%
+echo.
+echo Press any key to continue.
+pause >nul
+goto :supMenu_Store
 rem ---END--------------------------------
 
 rem ---START------------------------------
@@ -8905,6 +9817,780 @@ echo.
 echo Press any key to continue.
 pause >nul
 goto :MainMenu
+rem ---END--------------------------------
+
+rem ---START------------------------------
+:install_o2024lts
+setlocal EnableExtensions
+setlocal EnableDelayedExpansion
+cls
+TITLE Microsoft Office LTSC 2024 Professional Plus - Online Installer
+PushD "%~dp0"
+Set "Version=3.3.6"
+Set "on=(YES)"
+Set "off=(NO) "
+Set "opt1=%on%"
+Set "opt2=%on%"
+Set "opt3=%on%"
+Set "opt4=%on%"
+Set "opt5=%on%"
+Set "opt6=%on%"
+Set "opt7=%on%"
+Set "opt8=%on%"
+Set "opt9=%on%"
+Set "optP=%on%"
+Set "optT=%on%"
+Set "optD=%on%"
+If "%Processor_Architecture%"=="x86" Set "optB=32-bit"
+If "%Processor_Architecture%"=="AMD64" Set "optB=64-bit"
+If "%Processor_Architecture%"=="ARM64" Set "optB=64-bit"
+Set "optO=%off%"
+Set "optS=%on%"
+
+rem ---START------------------------------
+set OfficeToolURL=https://download.microsoft.com/download/6c1eeb25-cf8b-41d9-8d0d-cc1dbc032140/officedeploymenttool_19231-20156.exe
+set TempPath=%TEMP%\OfficeInstall
+set OfficeToolPath=%TempPath%\OfficeDeploymentTool.exe
+set config_o2024ltscxml=%TempPath%\config_o2024ltsc.xml
+
+REM Ensure the temp folder exists
+if not exist "%TempPath%" mkdir "%TempPath%"
+
+REM Download the Office Deployment Tool
+echo.
+echo Downloading Office Deployment Tool...
+echo %processtext%
+echo %linetext%
+curl -o "%OfficeToolPath%" "%OfficeToolURL%" -s --fail
+if errorlevel 1 (
+    echo ERROR: Failed to download Office Deployment Tool.
+    exit /b 1
+)
+
+REM Extract the Office Deployment Tool
+echo.
+echo Extracting Office Deployment Tool...
+echo %processtext%
+echo %linetext%
+"%OfficeToolPath%" /quiet /extract:"%TempPath%"
+if errorlevel 1 (
+    echo ERROR: Failed to extract Office Deployment Tool.
+    exit /b 1
+)
+rem ---END--------------------------------
+
+:menu_o2024ltsc
+cls
+echo.
+echo %linetop%
+echo Microsoft Office LTSC 2024 Professional Plus - Volume License
+echo %linebottom%
+FLTMC >NUL 2>&1 || Set _=^"Set "_ELEV=1" ^& CD /d """%~dp0""" ^& "%~f0" %*^" && ((If "%_ELEV%"=="" (echo. & ECHO Requesting administrator privileges . . . & ((PowerShell -nop -c START "" CMD -args '/d/x/s/v:off/r',$env:_ -Verb RunAs >NUL 2>NUL) || (mshta vbscript:execute^("CreateObject(""Shell.Application"").ShellExecute(""CMD"",""/d/x/s/v:off/r"" & CreateObject(""WScript.Shell"").Environment(""PROCESS"")(""_""),,""RunAs"",1)(Window.Close)"^) >NUL 2>&1))) Else (echo. & ECHO This script requires administrator privileges. & PAUSE)) & EXIT /b)
+
+WHERE /q /r ".\Office\Data" "stream.*.x-none.dat" 2>NUL && (Set "OFiles=%on%") || (Set "OFiles=%off%")
+If "%optO%,%OFiles%"=="%on%,%on%" Set "OMessage=Delete Offline Files"
+If "%optS%,%OFiles%"=="%on%,%on%" Set "SMessage=Offline Installation"
+If "%optO%,%OFiles%"=="%off%,%off%" Set "OMessage=Download Offline Files (x32 ^& x64 = 6,40 GB)"
+If "%optS%,%OFiles%"=="%off%,%off%" Set "SMessage=Online Installation"
+If "%optO%,%OFiles%"=="%on%,%off%" Set "OMessage=Download Offline Files (x32 ^& x64 = 6,40 GB)"
+If "%optS%,%OFiles%"=="%on%,%off%" Set "SMessage=Online Installation"
+If "%optO%,%OFiles%"=="%off%,%on%" Set "OMessage=Delete Offline Files"
+If "%optS%,%OFiles%"=="%off%,%on%" Set "SMessage=Offline Installation"
+If "%optB%"=="64-bit" Set "BMessage=Here you can switch between a 32-bit or 64-bit installation"
+If "%optB%"=="32-bit" Set "BMessage=Here you can switch between a 32-bit or 64-bit installation"
+If "%optB%,%Processor_Architecture%"=="64-bit,x86" Set "optB=32-bit" & Set "BMessage=A 64-bit Application cannot be installed on a 32-bit Windows"
+
+echo.
+<NUL Set/P=[1] & (If "%opt1%"=="%on%" (Call :EchoColor "%opt1%" 0a) Else (<NUL Set/P="%opt1%")) & ECHO  Microsoft Office Word.
+<NUL Set/P=[2] & (If "%opt2%"=="%on%" (Call :EchoColor "%opt2%" 0a) Else (<NUL Set/P="%opt2%")) & ECHO  Microsoft Office Excel.
+<NUL Set/P=[3] & (If "%opt3%"=="%on%" (Call :EchoColor "%opt3%" 0a) Else (<NUL Set/P="%opt3%")) & ECHO  Microsoft Office PowerPoint.
+<NUL Set/P=[4] & (If "%opt4%"=="%on%" (Call :EchoColor "%opt4%" 0a) Else (<NUL Set/P="%opt4%")) & ECHO  Microsoft Office Outlook.
+<NUL Set/P=[5] & (If "%opt5%"=="%on%" (Call :EchoColor "%opt5%" 0a) Else (<NUL Set/P="%opt5%")) & ECHO  Microsoft Office OneNote.
+<NUL Set/P=[6] & (If "%opt6%"=="%on%" (Call :EchoColor "%opt6%" 0a) Else (<NUL Set/P="%opt6%")) & ECHO  Microsoft Office Publisher
+<NUL Set/P=[7] & (If "%opt7%"=="%on%" (Call :EchoColor "%opt7%" 0a) Else (<NUL Set/P="%opt7%")) & ECHO  Microsoft Office Access.
+<NUL Set/P=[8] & (If "%opt8%"=="%on%" (Call :EchoColor "%opt8%" 0a) Else (<NUL Set/P="%opt8%")) & ECHO  Microsoft Office Visio.
+<NUL Set/P=[9] & (If "%opt9%"=="%on%" (Call :EchoColor "%opt9%" 0a) Else (<NUL Set/P="%opt9%")) & ECHO  Microsoft Office Project.
+<NUL Set/P=[P] & (If "%optP%"=="%on%" (Call :EchoColor "%optP%" 0a) Else (<NUL Set/P="%optP%")) & ECHO  Microsoft Office Proofing Tools.
+<NUL Set/P=[T] & (If "%optT%"=="%on%" (Call :EchoColor "%optT%" 0a) Else (<NUL Set/P="%optT%")) & ECHO  Microsoft Teams.
+<NUL Set/P=[D] & (If "%optD%"=="%on%" (Call :EchoColor "%optD%" 0a) Else (<NUL Set/P="%optD%")) & ECHO  Microsoft OneDrive.
+ECHO --- Office will matches it's language with your Windows system language.
+<NUL Set/P=[B] & (If "%optB%"=="%optB%" (Call :EchoColor "(%optB%)" 06) Else (<NUL Set/P="%optB%")) & ECHO  %BMessage%.
+<NUL Set/P=[O] & (If "%optO%"=="%on%" (Call :EchoColor "%optO%" 09) Else (<NUL Set/P="%optO%")) & ECHO  %OMessage%.
+<NUL Set/P=[S] & (If "%optS%"=="%on%" (Call :EchoColor "%optS%" 09) Else (<NUL Set/P="%optS%")) & ECHO  %SMessage%.
+
+echo.
+CHOICE /c 123456789PTDBOSXZ /n /m "--> Toggle your option(s) and toggle [Z] to Start: "
+
+If ERRORLEVEL 17 GoTo CONTINUE
+If ERRORLEVEL 16 EXIT
+If ERRORLEVEL 15 (If "%optS%"=="%on%" (Set "optS=%off%" & Set "optO=%on%") Else (Set "optS=%on%" & Set "optO=%off%")) & goto menu_o2024ltsc
+If ERRORLEVEL 14 (If "%optO%"=="%on%" (Set "optO=%off%" & Set "optS=%on%") Else (Set "optO=%on%" & Set "optS=%off%")) & goto menu_o2024ltsc
+If ERRORLEVEL 13 (If "%optB%"=="64-bit" (Set "optB=32-bit") Else (Set "optB=64-bit")) & goto menu_o2024ltsc
+If ERRORLEVEL 12 (If "%optD%"=="%on%" (Set "optD=%off%") Else (Set "optD=%on%")) & goto menu_o2024ltsc
+If ERRORLEVEL 11 (If "%optT%"=="%on%" (Set "optT=%off%") Else (Set "optT=%on%")) & goto menu_o2024ltsc
+If ERRORLEVEL 10 (If "%optP%"=="%on%" (Set "optP=%off%") Else (Set "optP=%on%")) & goto menu_o2024ltsc
+If ERRORLEVEL 9 (If "%opt9%"=="%on%" (Set "opt9=%off%") Else (Set "opt9=%on%")) & goto menu_o2024ltsc
+If ERRORLEVEL 8 (If "%opt8%"=="%on%" (Set "opt8=%off%") Else (Set "opt8=%on%")) & goto menu_o2024ltsc
+If ERRORLEVEL 7 (If "%opt7%"=="%on%" (Set "opt7=%off%") Else (Set "opt7=%on%")) & goto menu_o2024ltsc
+If ERRORLEVEL 6 (If "%opt6%"=="%on%" (Set "opt6=%off%") Else (Set "opt6=%on%")) & goto menu_o2024ltsc
+If ERRORLEVEL 5 (If "%opt5%"=="%on%" (Set "opt5=%off%") Else (Set "opt5=%on%")) & goto menu_o2024ltsc
+If ERRORLEVEL 4 (If "%opt4%"=="%on%" (Set "opt4=%off%") Else (Set "opt4=%on%")) & goto menu_o2024ltsc
+If ERRORLEVEL 3 (If "%opt3%"=="%on%" (Set "opt3=%off%") Else (Set "opt3=%on%")) & goto menu_o2024ltsc
+If ERRORLEVEL 2 (If "%opt2%"=="%on%" (Set "opt2=%off%") Else (Set "opt2=%on%")) & goto menu_o2024ltsc
+If ERRORLEVEL 1 (If "%opt1%"=="%on%" (Set "opt1=%off%") Else (Set "opt1=%on%")) & goto menu_o2024ltsc
+
+:EchoColor (Text, Color)
+  MkDir "%Temp%\_%1" 1>NUL
+  PushD "%Temp%\_%1"
+  For /f %%a in ('Echo PROMPT $H ^| "CMD"') do Set "BS=%%a"
+  <NUL Set /P="_" >"%1"
+  FindStr /l /i /b /p /a:%2 /s /c:"_" "%1"
+  <NUL Set /P=%BS%%BS%
+  PushD "%~dp0"
+  RmDir /s /q "%Temp%\_%1"
+GoTo :EOF
+
+:CONTINUE
+echo.
+ECHO %linetext%
+Echo %opt1% %opt2% %opt3% %opt4% %opt5% %opt6% %opt7% %opt8% %opt9% %optP% %optT% %optD% | FindStr /l /i "%on%" >nul 2>&1 && GoTo SKIP
+echo.
+ECHO No option were selected. O_o ?
+GoTo end_o2024ltsc
+:SKIP
+
+
+GoTo SKIP
+:config_o2024ltsc
+echo.
+ECHO Creating Configuration File for Office LTSC 2024 Professional Plus %CPU%-bit.
+echo %processtext%
+echo %linetext%
+SETLOCAL
+Set "OCS2024LTSC=%config_o2024ltscxml%"
+                                     >%OCS2024LTSC% ECHO ^<Configuration^>
+If "%optO%,%OFiles%"=="%on%,%off%"  >>%OCS2024LTSC% ECHO   ^<Add OfficeClientEdition="%CPU%" Channel="PerpetualVL2024"^>
+If "%optS%,%OFiles%"=="%on%,%off%"  >>%OCS2024LTSC% ECHO   ^<Add OfficeClientEdition="%CPU%" Channel="PerpetualVL2024" MigrateArch="TRUE"^>
+If "%optS%,%OFiles%"=="%on%,%on%"   >>%OCS2024LTSC% ECHO   ^<Add OfficeClientEdition="%CPU%" Channel="PerpetualVL2024" MigrateArch="TRUE" SourcePath="%CD%"^>
+                                    >>%OCS2024LTSC% ECHO     ^<Product ID="ProPlus2024Volume" PIDKEY="XJ2XN-FW8RK-P4HMP-DKDBV-GCVGB"^>
+                                    >>%OCS2024LTSC% ECHO       ^<Language ID="MatchOS" Fallback="en-US" /^>
+                                    >>%OCS2024LTSC% ECHO       ^<Language ID="en-us" /^>
+                                    >>%OCS2024LTSC% ECHO       ^<Language ID="MatchInstalled" TargetProduct="All" /^>
+                                    >>%OCS2024LTSC% ECHO       ^<Language ID="th-th" /^>
+If "%opt1%"=="%off%"                >>%OCS2024LTSC% ECHO       ^<ExcludeApp ID="Word" /^>
+If "%opt2%"=="%off%"                >>%OCS2024LTSC% ECHO       ^<ExcludeApp ID="Excel" /^>
+If "%opt3%"=="%off%"                >>%OCS2024LTSC% ECHO       ^<ExcludeApp ID="PowerPoint" /^>
+If "%opt4%"=="%off%"                >>%OCS2024LTSC% ECHO       ^<ExcludeApp ID="Outlook" /^>
+If "%opt5%"=="%off%"                >>%OCS2024LTSC% ECHO       ^<ExcludeApp ID="OneNote" /^>
+If "%opt6%"=="%off%"                >>%OCS2024LTSC% ECHO       ^<ExcludeApp ID="Publisher" /^>
+If "%opt7%"=="%off%"                >>%OCS2024LTSC% ECHO       ^<ExcludeApp ID="Access" /^>
+If "%optT%"=="%off%"                >>%OCS2024LTSC% ECHO       ^<ExcludeApp ID="Teams" /^>
+If "%optD%"=="%off%"                >>%OCS2024LTSC% ECHO       ^<ExcludeApp ID="OneDrive" /^>
+                                    >>%OCS2024LTSC% ECHO       ^<ExcludeApp ID="Lync" /^>
+                                    >>%OCS2024LTSC% ECHO       ^<ExcludeApp ID="Groove" /^>
+                                    >>%OCS2024LTSC% ECHO       ^<ExcludeApp ID="Bing" /^>
+                                    >>%OCS2024LTSC% ECHO     ^</Product^>
+If "%opt8%"=="%on%"                 >>%OCS2024LTSC% ECHO     ^<Product ID="VisioPro2024Volume" PIDKEY="B7TN8-FJ8V3-7QYCP-HQPMV-YY89G"^>
+If "%opt8%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="MatchOS" Fallback="en-US" /^>
+If "%opt8%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<ExcludeApp ID="Bing" /^>
+If "%opt8%"=="%on%"                 >>%OCS2024LTSC% ECHO     ^</Product^>
+If "%opt9%"=="%on%"                 >>%OCS2024LTSC% ECHO     ^<Product ID="ProjectPro2024Volume" PIDKEY="FQQ23-N4YCY-73HQ3-FM9WC-76HF4"^>
+If "%opt9%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="MatchOS" Fallback="en-US" /^>
+If "%opt9%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<ExcludeApp ID="Bing" /^>
+If "%opt9%"=="%on%"                 >>%OCS2024LTSC% ECHO     ^</Product^>
+If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO     ^<Product ID="ProofingTools"^>
+If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="MatchOS" Fallback="en-US" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="af-ZA" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="sq-AL" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="ar-SA" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="hy-AM" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="as-IN" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="az-Latn-AZ" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="bn-BD" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="bn-IN" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="eu-ES" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="bs-Latn-BA" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="bg-BG" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="ca-ES" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="zh-CN" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="zh-TW" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="hr-HR" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="cs-CZ" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="da-DK" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="nl-NL" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="en-US" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="et-EE" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="fi-FI" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="fr-FR" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="gl-ES" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="ka-GE" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="de-DE" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="el-GR" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="gu-IN" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="ha-Latn-NG" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="he-IL" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="hi-IN" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="hu-HU" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="is-IS" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="ig-NG" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="id-ID" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="ga-IE" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="xh-ZA" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="zu-ZA" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="it-IT" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="ja-JP" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="kn-IN" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="kk-KZ" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="rw-RW" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="sw-KE" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="kok-IN" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="ko-KR" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="ky-KG" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="lv-LV" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="lt-LT" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="lb-LU" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="mk-MK" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="ms-MY" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="ml-IN" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="mt-MT" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="mi-NZ" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="mr-IN" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="ne-NP" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="nb-NO" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="nn-NO" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="or-IN" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="ps-AF" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="fa-IR" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="pl-PL" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="pt-BR" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="pt-PT" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="pa-IN" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="ro-RO" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="rm-CH" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="ru-RU" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="gd-GB" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="sr-Cyrl-BA" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="sr-Cyrl-RS" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="sr-Latn-RS" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="nso-ZA" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="tn-ZA" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="si-LK" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="sk-SK" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="sl-SI" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="es-ES" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="sv-SE" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="ta-IN" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="tt-RU" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="te-IN" /^>
+If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="th-TH" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="tr-TR" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="uk-UA" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="ur-PK" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="uz-Latn-UZ" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="ca-ES-Valencia" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="vi-VN" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="cy-GB" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="wo-SN" /^>
+::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="yo-NG" /^>
+If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<ExcludeApp ID="Bing" /^>
+If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO     ^</Product^>
+                                    >>%OCS2024LTSC% ECHO     ^<Product ID="LanguagePack"^>
+                                    >>%OCS2024LTSC% ECHO       ^<Language ID="MatchInstalled" /^>
+                                    >>%OCS2024LTSC% ECHO       ^<ExcludeApp ID="Bing" /^>
+                                    >>%OCS2024LTSC% ECHO     ^</Product^>
+                                    >>%OCS2024LTSC% ECHO   ^</Add^>
+If "%optS%"=="%on%"                 >>%OCS2024LTSC% ECHO   ^<Updates Enabled="TRUE" /^>
+If "%optS%"=="%on%"                 >>%OCS2024LTSC% ECHO   ^<Display Level="Full" AcceptEULA="TRUE" /^>
+If "%optS%"=="%on%"                 >>%OCS2024LTSC% ECHO   ^<Property Name="ForceAppShutdown" Value="TRUE" /^>
+If "%optS%"=="%on%"                 >>%OCS2024LTSC% ECHO   ^<AppSettings^>
+If "%optS%,%opt1%"=="%on%,%on%"     >>%OCS2024LTSC% ECHO     ^<User Key="Software\Microsoft\Office\16.0\Word\Options" Name="defaultformat" Value="" Type="REG_SZ" App="word16" Id="L_SaveWordfilesas" /^>
+If "%optS%,%opt2%"=="%on%,%on%"     >>%OCS2024LTSC% ECHO     ^<User Key="Software\Microsoft\Office\16.0\Excel\Options" Name="defaultformat" Value="51" Type="REG_DWORD" App="excel16" Id="L_SaveExcelfilesas" /^>
+If "%optS%,%opt3%"=="%on%,%on%"     >>%OCS2024LTSC% ECHO     ^<User Key="Software\Microsoft\Office\16.0\PowerPoint\Options" Name="defaultformat" Value="27" Type="REG_DWORD" App="ppt16" Id="L_SavePowerPointfilesas" /^>
+If "%optS%"=="%on%"                 >>%OCS2024LTSC% ECHO   ^</AppSettings^>
+                                    >>%OCS2024LTSC% ECHO ^</Configuration^>
+ENDLOCAL
+GoTo :EOF
+:SKIP
+
+
+REM Run the Office setup with the configuration file
+If Not "%optO%,%OFiles%"=="%on%,%off%" GoTo SKIP
+echo.
+echo %noticetext%
+echo This can take a few minutes, depending on your Internet Speed.
+echo %linetext%
+Set "CPU=32" & CALL :config_o2024ltsc
+echo.
+ECHO Downloading Microsoft Office LTSC 2024 Professional Plus %CPU%-bit (Size 3,08 GB)...
+echo %processtext%
+echo %linetext%
+ping -n 3 localhost 1>NUL
+START "" /WAIT /B "%TempPath%\Setup.exe" /download "%config_o2024ltscxml%"
+echo.
+Set "CPU=64" & CALL :config_o2024ltsc
+echo.
+ECHO Downloading Microsoft Office LTSC 2024 Professional Plus %CPU%-bit (Size 3,32 GB)...
+echo %processtext%
+echo %linetext%
+ping -n 3 localhost 1>NUL
+START "" /WAIT /B "%TempPath%\Setup.exe" /download "%config_o2024ltscxml%"
+:SKIP
+
+If Not "%optS%"=="%on%" GoTo SKIP
+echo.
+If "%optB%"=="64-bit" Set "CPU=64"
+If "%optB%"=="32-bit" Set "CPU=32"
+CALL :config_o2024ltsc
+echo.
+ECHO Installing Microsoft Office LTSC Professional Plus 2024 %CPU%-bit
+echo %processtext%
+echo %linetext%
+ping -n 3 localhost 1>NUL
+START "" /WAIT /B "%TempPath%\Setup.exe" /configure "%config_o2024ltscxml%"
+
+echo.
+ECHO Disabling Microsoft Office LTSC Professional Plus 2024
+echo %processtext%
+echo %linetext%
+ping -n 3 localhost 1>NUL
+REG ADD "HKLM\SOFTWARE\Microsoft\Office\Common\ClientTelemetry" /v "DisableTelemetry" /t REG_DWORD /d "00000001" /f 1>NUL
+:SKIP
+
+If Not "%optO%,%OFiles%"=="%on%,%on%" GoTo SKIP
+echo.
+ECHO Deleting Microsoft Office LTSC Professional Plus 2024 Installation Files
+echo %processtext%
+echo %linetext%
+ping -n 3 localhost 1>NUL
+RmDir /s /q "%TempPath%" 2>NUL
+echo.
+echo %finishedtext%
+echo %linetext%
+ping -n 5 localhost 1>NUL
+Set "optO=%off%"
+Set "optS=%on%"
+goto menu_o2024ltsc
+:SKIP
+
+
+:end_o2024ltsc
+echo.
+echo %completedtext%
+DEL /f "%config_o2024ltscxml%" 2>NUL
+echo.
+echo Press any key to continue.
+pause >nul
+goto :MainMenu
+rem ---END--------------------------------
+
+
+rem ---START------------------------------
+:install_o365
+setlocal EnableExtensions
+setlocal EnableDelayedExpansion
+cls
+TITLE Microsoft Office 365 ProPlus - Online Installer
+PushD "%~dp0"
+Set "Version=3.3.6"
+Set "on=(YES)"
+Set "off=(NO) "
+Set "opt1=%on%"
+Set "opt2=%on%"
+Set "opt3=%on%"
+Set "opt4=%on%"
+Set "opt5=%on%"
+Set "opt6=%on%"
+Set "opt7=%on%"
+Set "opt8=%on%"
+Set "opt9=%on%"
+Set "optP=%on%"
+Set "optT=%on%"
+Set "optD=%on%"
+If "%Processor_Architecture%"=="x86" Set "optB=32-bit"
+If "%Processor_Architecture%"=="AMD64" Set "optB=64-bit"
+If "%Processor_Architecture%"=="ARM64" Set "optB=64-bit"
+Set "optO=%off%"
+Set "optS=%on%"
+
+rem ---START------------------------------
+set OfficeToolURL=https://download.microsoft.com/download/6c1eeb25-cf8b-41d9-8d0d-cc1dbc032140/officedeploymenttool_19231-20156.exe
+set TempPath=%TEMP%\OfficeInstall
+set OfficeToolPath=%TempPath%\OfficeDeploymentTool.exe
+set config_o365xml=%TempPath%\config_o365.xml
+
+REM Ensure the temp folder exists
+if not exist "%TempPath%" mkdir "%TempPath%"
+
+REM Download the Office Deployment Tool
+echo Downloading Office Deployment Tool...
+echo %processtext%
+echo %linetext%
+curl -o "%OfficeToolPath%" "%OfficeToolURL%" -s --fail
+if errorlevel 1 (
+    echo ERROR: Failed to download Office Deployment Tool.
+    exit /b 1
+)
+
+REM Extract the Office Deployment Tool
+echo Extracting Office Deployment Tool...
+echo %processtext%
+echo %linetext%
+"%OfficeToolPath%" /quiet /extract:"%TempPath%"
+if errorlevel 1 (
+    echo ERROR: Failed to extract Office Deployment Tool.
+    exit /b 1
+)
+rem ---END--------------------------------
+
+:menu_o365
+cls
+echo.
+echo %linetop%
+echo Microsoft Office 365 Professional Plus - Online Installer
+echo %linebottom%
+FLTMC >NUL 2>&1 || Set _=^"Set "_ELEV=1" ^& CD /d """%~dp0""" ^& "%~f0" %*^" && ((If "%_ELEV%"=="" (echo. & ECHO Requesting administrator privileges . . . & ((PowerShell -nop -c START "" CMD -args '/d/x/s/v:off/r',$env:_ -Verb RunAs >NUL 2>NUL) || (mshta vbscript:execute^("CreateObject(""Shell.Application"").ShellExecute(""CMD"",""/d/x/s/v:off/r"" & CreateObject(""WScript.Shell"").Environment(""PROCESS"")(""_""),,""RunAs"",1)(Window.Close)"^) >NUL 2>&1))) Else (echo. & ECHO This script requires administrator privileges. & PAUSE)) & EXIT /b)
+
+WHERE /q /r ".\Office\Data" "stream.*.x-none.dat" 2>NUL && (Set "OFiles=%on%") || (Set "OFiles=%off%")
+If "%optO%,%OFiles%"=="%on%,%on%" Set "OMessage=Delete Offline Files"
+If "%optS%,%OFiles%"=="%on%,%on%" Set "SMessage=Offline Installation"
+If "%optO%,%OFiles%"=="%off%,%off%" Set "OMessage=Download Offline Files (x32 ^& x64 = 6,40 GB)"
+If "%optS%,%OFiles%"=="%off%,%off%" Set "SMessage=Online Installation"
+If "%optO%,%OFiles%"=="%on%,%off%" Set "OMessage=Download Offline Files (x32 ^& x64 = 6,40 GB)"
+If "%optS%,%OFiles%"=="%on%,%off%" Set "SMessage=Online Installation"
+If "%optO%,%OFiles%"=="%off%,%on%" Set "OMessage=Delete Offline Files"
+If "%optS%,%OFiles%"=="%off%,%on%" Set "SMessage=Offline Installation"
+If "%optB%"=="64-bit" Set "BMessage=Here you can switch between a 32-bit or 64-bit installation"
+If "%optB%"=="32-bit" Set "BMessage=Here you can switch between a 32-bit or 64-bit installation"
+If "%optB%,%Processor_Architecture%"=="64-bit,x86" Set "optB=32-bit" & Set "BMessage=A 64-bit Application cannot be installed on a 32-bit Windows"
+
+echo.
+<NUL Set/P=[1] & (If "%opt1%"=="%on%" (Call :EchoColor "%opt1%" 0a) Else (<NUL Set/P="%opt1%")) & ECHO  Microsoft Office Word.
+<NUL Set/P=[2] & (If "%opt2%"=="%on%" (Call :EchoColor "%opt2%" 0a) Else (<NUL Set/P="%opt2%")) & ECHO  Microsoft Office Excel.
+<NUL Set/P=[3] & (If "%opt3%"=="%on%" (Call :EchoColor "%opt3%" 0a) Else (<NUL Set/P="%opt3%")) & ECHO  Microsoft Office PowerPoint.
+<NUL Set/P=[4] & (If "%opt4%"=="%on%" (Call :EchoColor "%opt4%" 0a) Else (<NUL Set/P="%opt4%")) & ECHO  Microsoft Office Outlook.
+<NUL Set/P=[5] & (If "%opt5%"=="%on%" (Call :EchoColor "%opt5%" 0a) Else (<NUL Set/P="%opt5%")) & ECHO  Microsoft Office OneNote.
+<NUL Set/P=[6] & (If "%opt6%"=="%on%" (Call :EchoColor "%opt6%" 0a) Else (<NUL Set/P="%opt6%")) & ECHO  Microsoft Office Publisher
+<NUL Set/P=[7] & (If "%opt7%"=="%on%" (Call :EchoColor "%opt7%" 0a) Else (<NUL Set/P="%opt7%")) & ECHO  Microsoft Office Access.
+<NUL Set/P=[8] & (If "%opt8%"=="%on%" (Call :EchoColor "%opt8%" 0a) Else (<NUL Set/P="%opt8%")) & ECHO  Microsoft Office Visio.
+<NUL Set/P=[9] & (If "%opt9%"=="%on%" (Call :EchoColor "%opt9%" 0a) Else (<NUL Set/P="%opt9%")) & ECHO  Microsoft Office Project.
+<NUL Set/P=[P] & (If "%optP%"=="%on%" (Call :EchoColor "%optP%" 0a) Else (<NUL Set/P="%optP%")) & ECHO  Microsoft Office Proofing Tools.
+<NUL Set/P=[T] & (If "%optT%"=="%on%" (Call :EchoColor "%optT%" 0a) Else (<NUL Set/P="%optT%")) & ECHO  Microsoft Teams.
+<NUL Set/P=[D] & (If "%optD%"=="%on%" (Call :EchoColor "%optD%" 0a) Else (<NUL Set/P="%optD%")) & ECHO  Microsoft OneDrive.
+ECHO --- Office will matches it's language with your Windows system language.
+<NUL Set/P=[B] & (If "%optB%"=="%optB%" (Call :EchoColor "(%optB%)" 06) Else (<NUL Set/P="%optB%")) & ECHO  %BMessage%.
+<NUL Set/P=[O] & (If "%optO%"=="%on%" (Call :EchoColor "%optO%" 09) Else (<NUL Set/P="%optO%")) & ECHO  %OMessage%.
+<NUL Set/P=[S] & (If "%optS%"=="%on%" (Call :EchoColor "%optS%" 09) Else (<NUL Set/P="%optS%")) & ECHO  %SMessage%.
+
+echo.
+CHOICE /c 123456789PTDBOSXZ /n /m "--> Toggle your option(s) and toggle [Z] to Start: "
+
+If ERRORLEVEL 17 GoTo CONTINUE
+If ERRORLEVEL 16 EXIT
+If ERRORLEVEL 15 (If "%optS%"=="%on%" (Set "optS=%off%" & Set "optO=%on%") Else (Set "optS=%on%" & Set "optO=%off%")) & goto menu_o365
+If ERRORLEVEL 14 (If "%optO%"=="%on%" (Set "optO=%off%" & Set "optS=%on%") Else (Set "optO=%on%" & Set "optS=%off%")) & goto menu_o365
+If ERRORLEVEL 13 (If "%optB%"=="64-bit" (Set "optB=32-bit") Else (Set "optB=64-bit")) & goto menu_o365
+If ERRORLEVEL 12 (If "%optD%"=="%on%" (Set "optD=%off%") Else (Set "optD=%on%")) & goto menu_o365
+If ERRORLEVEL 11 (If "%optT%"=="%on%" (Set "optT=%off%") Else (Set "optT=%on%")) & goto menu_o365
+If ERRORLEVEL 10 (If "%optP%"=="%on%" (Set "optP=%off%") Else (Set "optP=%on%")) & goto menu_o365
+If ERRORLEVEL 9 (If "%opt9%"=="%on%" (Set "opt9=%off%") Else (Set "opt9=%on%")) & goto menu_o365
+If ERRORLEVEL 8 (If "%opt8%"=="%on%" (Set "opt8=%off%") Else (Set "opt8=%on%")) & goto menu_o365
+If ERRORLEVEL 7 (If "%opt7%"=="%on%" (Set "opt7=%off%") Else (Set "opt7=%on%")) & goto menu_o365
+If ERRORLEVEL 6 (If "%opt6%"=="%on%" (Set "opt6=%off%") Else (Set "opt6=%on%")) & goto menu_o365
+If ERRORLEVEL 5 (If "%opt5%"=="%on%" (Set "opt5=%off%") Else (Set "opt5=%on%")) & goto menu_o365
+If ERRORLEVEL 4 (If "%opt4%"=="%on%" (Set "opt4=%off%") Else (Set "opt4=%on%")) & goto menu_o365
+If ERRORLEVEL 3 (If "%opt3%"=="%on%" (Set "opt3=%off%") Else (Set "opt3=%on%")) & goto menu_o365
+If ERRORLEVEL 2 (If "%opt2%"=="%on%" (Set "opt2=%off%") Else (Set "opt2=%on%")) & goto menu_o365
+If ERRORLEVEL 1 (If "%opt1%"=="%on%" (Set "opt1=%off%") Else (Set "opt1=%on%")) & goto menu_o365
+
+:EchoColor (Text, Color)
+  MkDir "%Temp%\_%1" 1>NUL
+  PushD "%Temp%\_%1"
+  For /f %%a in ('Echo PROMPT $H ^| "CMD"') do Set "BS=%%a"
+  <NUL Set /P="_" >"%1"
+  FindStr /l /i /b /p /a:%2 /s /c:"_" "%1"
+  <NUL Set /P=%BS%%BS%
+  PushD "%~dp0"
+  RmDir /s /q "%Temp%\_%1"
+GoTo :EOF
+
+:CONTINUE
+echo.
+ECHO ---------------------------------------------------------------------------
+Echo %opt1% %opt2% %opt3% %opt4% %opt5% %opt6% %opt7% %opt8% %opt9% %optP% %optT% %optD% | FindStr /l /i "%on%" >nul 2>&1 && GoTo SKIP
+echo.
+ECHO No option were selected. O_o ?
+GoTo end_o365
+:SKIP
+
+
+GoTo SKIP
+:config_o365
+echo.
+ECHO Creating Configuration File for Microsoft Office 365 ProPlus %CPU%-bit
+echo %processtext%
+echo %linetext%
+ping -n 3 localhost 1>NUL
+SETLOCAL
+Set "OCS365=%config_o365xml%"
+                                     >%OCS365% ECHO ^<Configuration^>
+If "%optO%,%OFiles%"=="%on%,%off%"  >>%OCS365% ECHO   ^<Add OfficeClientEdition="%CPU%" Channel="Current"^>
+If "%optS%,%OFiles%"=="%on%,%off%"  >>%OCS365% ECHO   ^<Add OfficeClientEdition="%CPU%" Channel="Current" MigrateArch="TRUE"^>
+If "%optS%,%OFiles%"=="%on%,%on%"   >>%OCS365% ECHO   ^<Add OfficeClientEdition="%CPU%" Channel="Current" MigrateArch="TRUE" SourcePath="%CD%"^>
+                                    >>%OCS365% ECHO     ^<Product ID="O365ProPlusRetail"^>
+                                    >>%OCS365% ECHO       ^<Language ID="MatchOS" Fallback="en-US" /^>
+                                    >>%OCS365% ECHO       ^<Language ID="en-us" /^>
+                                    >>%OCS365% ECHO       ^<Language ID="MatchInstalled" TargetProduct="All" /^>
+                                    >>%OCS365% ECHO       ^<Language ID="th-th" /^>
+If "%opt1%"=="%off%"                >>%OCS365% ECHO       ^<ExcludeApp ID="Word" /^>
+If "%opt2%"=="%off%"                >>%OCS365% ECHO       ^<ExcludeApp ID="Excel" /^>
+If "%opt3%"=="%off%"                >>%OCS365% ECHO       ^<ExcludeApp ID="PowerPoint" /^>
+If "%opt4%"=="%off%"                >>%OCS365% ECHO       ^<ExcludeApp ID="Outlook" /^>
+If "%opt5%"=="%off%"                >>%OCS365% ECHO       ^<ExcludeApp ID="OneNote" /^>
+If "%opt6%"=="%off%"                >>%OCS365% ECHO       ^<ExcludeApp ID="Publisher" /^>
+If "%opt7%"=="%off%"                >>%OCS365% ECHO       ^<ExcludeApp ID="Access" /^>
+If "%optT%"=="%off%"                >>%OCS365% ECHO       ^<ExcludeApp ID="Teams" /^>
+If "%optD%"=="%off%"                >>%OCS365% ECHO       ^<ExcludeApp ID="OneDrive" /^>
+                                    >>%OCS365% ECHO       ^<ExcludeApp ID="Lync" /^>
+                                    >>%OCS365% ECHO       ^<ExcludeApp ID="Groove" /^>
+                                    >>%OCS365% ECHO       ^<ExcludeApp ID="Bing" /^>
+                                    >>%OCS365% ECHO     ^</Product^>
+If "%opt8%"=="%on%"                 >>%OCS365% ECHO     ^<Product ID="VisioProRetail"^>
+If "%opt8%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="MatchOS" Fallback="en-US" /^>
+If "%opt8%"=="%on%"                 >>%OCS365% ECHO       ^<ExcludeApp ID="Bing" /^>
+If "%opt8%"=="%on%"                 >>%OCS365% ECHO     ^</Product^>
+If "%opt9%"=="%on%"                 >>%OCS365% ECHO     ^<Product ID="ProjectProRetail"^>
+If "%opt9%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="MatchOS" Fallback="en-US" /^>
+If "%opt9%"=="%on%"                 >>%OCS365% ECHO       ^<ExcludeApp ID="Bing" /^>
+If "%opt9%"=="%on%"                 >>%OCS365% ECHO     ^</Product^>
+If "%optP%"=="%on%"                 >>%OCS365% ECHO     ^<Product ID="ProofingTools"^>
+If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="MatchOS" Fallback="en-US" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="af-ZA" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="sq-AL" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="ar-SA" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="hy-AM" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="as-IN" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="az-Latn-AZ" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="bn-BD" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="bn-IN" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="eu-ES" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="bs-Latn-BA" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="bg-BG" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="ca-ES" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="zh-CN" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="zh-TW" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="hr-HR" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="cs-CZ" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="da-DK" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="nl-NL" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="en-US" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="et-EE" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="fi-FI" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="fr-FR" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="gl-ES" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="ka-GE" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="de-DE" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="el-GR" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="gu-IN" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="ha-Latn-NG" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="he-IL" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="hi-IN" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="hu-HU" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="is-IS" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="ig-NG" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="id-ID" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="ga-IE" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="xh-ZA" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="zu-ZA" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="it-IT" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="ja-JP" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="kn-IN" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="kk-KZ" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="rw-RW" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="sw-KE" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="kok-IN" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="ko-KR" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="ky-KG" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="lv-LV" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="lt-LT" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="lb-LU" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="mk-MK" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="ms-MY" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="ml-IN" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="mt-MT" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="mi-NZ" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="mr-IN" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="ne-NP" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="nb-NO" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="nn-NO" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="or-IN" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="ps-AF" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="fa-IR" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="pl-PL" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="pt-BR" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="pt-PT" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="pa-IN" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="ro-RO" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="rm-CH" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="ru-RU" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="gd-GB" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="sr-Cyrl-BA" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="sr-Cyrl-RS" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="sr-Latn-RS" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="nso-ZA" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="tn-ZA" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="si-LK" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="sk-SK" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="sl-SI" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="es-ES" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="sv-SE" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="ta-IN" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="tt-RU" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="te-IN" /^>
+If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="th-TH" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="tr-TR" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="uk-UA" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="ur-PK" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="uz-Latn-UZ" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="ca-ES-Valencia" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="vi-VN" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="cy-GB" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="wo-SN" /^>
+::If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<Language ID="yo-NG" /^>
+If "%optP%"=="%on%"                 >>%OCS365% ECHO       ^<ExcludeApp ID="Bing" /^>
+If "%optP%"=="%on%"                 >>%OCS365% ECHO     ^</Product^>
+                                    >>%OCS365% ECHO     ^<Product ID="LanguagePack"^>
+                                    >>%OCS365% ECHO       ^<Language ID="MatchInstalled" /^>
+                                    >>%OCS365% ECHO       ^<ExcludeApp ID="Bing" /^>
+                                    >>%OCS365% ECHO     ^</Product^>
+                                    >>%OCS365% ECHO   ^</Add^>
+If "%optS%"=="%on%"                 >>%OCS365% ECHO   ^<Updates Enabled="TRUE" /^>
+If "%optS%"=="%on%"                 >>%OCS365% ECHO   ^<Display Level="Full" AcceptEULA="TRUE" /^>
+If "%optS%"=="%on%"                 >>%OCS365% ECHO   ^<Property Name="ForceAppShutdown" Value="TRUE" /^>
+If "%optS%"=="%on%"                 >>%OCS365% ECHO   ^<AppSettings^>
+If "%optS%,%opt1%"=="%on%,%on%"     >>%OCS365% ECHO     ^<User Key="Software\Microsoft\Office\16.0\Word\Options" Name="defaultformat" Value="" Type="REG_SZ" App="word16" Id="L_SaveWordfilesas" /^>
+If "%optS%,%opt2%"=="%on%,%on%"     >>%OCS365% ECHO     ^<User Key="Software\Microsoft\Office\16.0\Excel\Options" Name="defaultformat" Value="51" Type="REG_DWORD" App="excel16" Id="L_SaveExcelfilesas" /^>
+If "%optS%,%opt3%"=="%on%,%on%"     >>%OCS365% ECHO     ^<User Key="Software\Microsoft\Office\16.0\PowerPoint\Options" Name="defaultformat" Value="27" Type="REG_DWORD" App="ppt16" Id="L_SavePowerPointfilesas" /^>
+If "%optS%"=="%on%"                 >>%OCS365% ECHO   ^</AppSettings^>
+                                    >>%OCS365% ECHO ^</Configuration^>
+ENDLOCAL
+GoTo :EOF
+:SKIP
+
+
+REM Run the Office setup with the configuration file
+If Not "%optO%,%OFiles%"=="%on%,%off%" GoTo SKIP
+echo.
+echo %noticetext%
+echo %linetext%
+echo This can take a few minutes, depending on your Internet Speed.
+echo %linetext%
+Set "CPU=32" & CALL :config_o365
+echo.
+echo Downloading Microsoft Office 365 ProPlus %CPU%-bit (Size 3,08 GB)...
+echo %processtext%
+echo %linetext%
+ping -n 3 localhost 1>NUL
+START "" /WAIT /B "%TempPath%\Setup.exe" /download "%config_o365xml%"
+echo.
+Set "CPU=64" & CALL :config_o365
+echo.
+ECHO Downloading Microsoft Office 365 ProPlus %CPU%-bit (Size 3,32 GB)...
+echo %processtext%
+echo %linetext%
+ping -n 3 localhost 1>NUL
+START "" /WAIT /B "%TempPath%\Setup.exe" /download "%config_o365xml%"
+:SKIP
+
+If Not "%optS%"=="%on%" GoTo SKIP
+echo.
+If "%optB%"=="64-bit" Set "CPU=64"
+If "%optB%"=="32-bit" Set "CPU=32"
+CALL :config_o365
+echo.
+ECHO Installing Microsoft Office 365 ProPlus %CPU%-bit.
+echo %processtext%
+echo %linetext%
+ping -n 3 localhost 1>NUL
+START "" /WAIT /B "%TempPath%\Setup.exe" /configure "%config_o365xml%"
+
+echo.
+ECHO Disabling Microsoft Office 365 Telemetry
+echo %processtext%
+echo %linetext%
+ping -n 3 localhost 1>NUL
+REG ADD "HKLM\SOFTWARE\Microsoft\Office\Common\ClientTelemetry" /v "DisableTelemetry" /t REG_DWORD /d "00000001" /f 1>NUL
+:SKIP
+
+If Not "%optO%,%OFiles%"=="%on%,%on%" GoTo SKIP
+echo.
+ECHO Deleting Microsoft Office 365 ProPlus Installation Files
+echo %processtext%
+echo %linetext%
+ping -n 3 localhost 1>NUL
+RmDir /s /q "%TempPath%" 2>NUL
+echo.
+echo %finishedtext%
+echo %linetext%
+ping -n 5 localhost 1>NUL
+Set "optO=%off%"
+Set "optS=%on%"
+goto menu_o365
+:SKIP
+
+:end_o365
+echo.
+echo %completedtext%
+DEL /f "%config_o365xml%" 2>NUL
+echo.
+echo Press any key to continue.
+pause >nul
+goto :MainMenu
+rem ---END--------------------------------
+
+rem ---START------------------------------
+:prompt_rebootdos
+echo.
+echo %linetext%
+::set /p yesno=Do you want to Reboot this machine [Y/N]:
+::if "%yesno%"=="y" goto Confirmation
+::if "%yesno%"=="Y" goto Confirmation
+::if "%yesno%"=="n" goto EndReboot
+::if "%yesno%"=="N" goto EndReboot
+
+choice /m "Do you want to restart the computer now"
+if errorlevel 2 GOTO EndReboot
+if errorlevel 1 GOTO Confirmation
+
+:Confirmation
+echo.
+echo %linetext%
+echo System is going to Reboot now
+shutdown.exe -r -t 1
+goto :eof
+
+:EndReboot
+echo.
+echo %linetext%
+echo System Reboot cancelled
+::timeout 5 >nul
+timeout 5 /nobreak
+goto :MainMenu
+rem ---END--------------------------------
+
+rem ---START------------------------------
+:prompt_rebootvb
+(
+    echo    Set Ws = CreateObject("wscript.shell"^)
+    echo    Answ = MsgBox("Do you want to restart the computer now?"_
+    echo ,VbYesNo+VbQuestion,"Do you want to restart the computer now?"^)
+    echo    If Answ = VbYes then 
+    echo        Return = Ws.Run("cmd /c shutdown -r -t 1 -c ""You need to reboot in 1 second."" -f",0,True^)
+    echo    Else
+    echo        wscript.Quit(1^)
+    echo    End If
+)>"%tmp%\%~n0.vbs"
+Start "" "%tmp%\%~n0.vbs"
+rem ---END--------------------------------
 
 :clearSPP
 set spp=SoftwareLicensingProduct
@@ -8938,6 +10624,20 @@ wmic path %spp% where ID='%app%' call ClearKeyManagementServiceMachine >nul 2>&1
 wmic path %spp% where ID='%app%' call ClearKeyManagementServicePort >nul 2>&1
 exit /b
 rem ---END--------------------------------
+
+
+:rename EditionID
+set "NT=HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion"
+for %%v in (CompositionEditionID EditionID ProductName) do reg add "%NT%" /v %%v_undo /d "!%%v!" /f >nul 2>nul
+for %%A in (32 64) do ( 
+ reg add "%NT%" /v CompositionEditionID /d "%comp%" /f /reg:%%A
+ reg add "%NT%" /v EditionID /d "%~1" /f /reg:%%A
+ reg add "%NT%" /v ProductName /d "%~1" /f /reg:%%A
+) >nul 2>nul
+exit /b
+
+:reg_query [USAGE] call :reg_query "HKCU\Volatile Environment" Value variable
+(for /f "tokens=2*" %%R in ('reg query "%~1" /v "%~2" /se "|" %4 2^>nul') do set "%~3=%%S") & exit /b
 
 ----- Begin wsf script --->
 <package>
