@@ -13,25 +13,51 @@ rem For Office 2016 – cscript slmgr.vbs /dlv 98ebfe73-2084-4c97-932c-c0cd1643b
 :: BatchGotAdmin
 ::-------------------------------------
 REM  --> Check for permissions
->nul 2>&1 "%SYSTEMROOT%\system32\cacls.exe" "%SYSTEMROOT%\system32\config\system"
-REM --> If error flag set, we do not have admin.
-if '%errorlevel%' NEQ '0' (
-  echo This script must be run as Administrator.
-  echo Attempting to re-launch with elevated privileges...
-  goto UACPrompt
-) else ( 
-  goto gotAdmin 
-)
-:UACPrompt
-echo Set UAC = CreateObject^("Shell.Application"^) > "%temp%\getadmin.vbs"
-set params = %*:"="
-echo UAC.ShellExecute "cmd.exe", "/c %~s0 %params%", "", "runas", 1 >> "%temp%\getadmin.vbs"
+rem >nul 2>&1 "%SYSTEMROOT%\system32\cacls.exe" "%SYSTEMROOT%\system32\config\system"
+rem REM --> If error flag set, we do not have admin.
+rem if '%errorlevel%' NEQ '0' (
+rem   echo This script must be run as Administrator.
+rem   echo Attempting to re-launch with elevated privileges...
+rem   goto UACPrompt
+rem ) else ( 
+rem   goto gotAdmin 
+rem )
+rem :UACPrompt
+rem echo Set UAC = CreateObject^("Shell.Application"^) > "%temp%\getadmin.vbs"
+rem set params = %*:"="
+rem echo UAC.ShellExecute "cmd.exe", "/c %~s0 %params%", "", "runas", 1 >> "%temp%\getadmin.vbs"
+rem "%temp%\getadmin.vbs"
+rem del "%temp%\getadmin.vbs"
+rem exit /B
+rem :gotAdmin
 
-"%temp%\getadmin.vbs"
-del "%temp%\getadmin.vbs"
-exit /B
+REM Detect if the script is already running with elevated privileges
+NET SESSION >NUL 2>NUL
+if %ERRORLEVEL% EQU 0 (
+    goto :gotAdmin
+) else (
+    echo Set UAC = CreateObject^("Shell.Application"^) > "%TEMP%\elevate.vbs"
+    echo UAC.ShellExecute "%~s0", "", "", "runas", 1 >> "%TEMP%\elevate.vbs"
+    "%TEMP%\elevate.vbs"
+    del "%TEMP%\elevate.vbs"
+    exit /b
+)
 
 :gotAdmin
+REM Set default language to English (United States)
+chcp 437 > nul
+
+REM Check if the script is being run with administrator privileges
+>nul 2>&1 "%SYSTEMROOT%\system32\cacls.exe" "%SYSTEMROOT%\system32\config\system"
+if '%errorlevel%' NEQ '0' (
+    echo This script needs to be run with administrator privileges.
+    pause
+    exit /b
+)
+
+::--------------------------------------
+
+
 pushd "%CD%"
 CD /D "%~dp0"
 ::--------------------------------------
@@ -42,9 +68,11 @@ set id=%random%
 title %id%
 tasklist /v /fo csv | findstr "%id%" | findstr "cmd.exe"
 if %errorlevel% == 1 start conhost "%~f0" & GOTO :EOF 
-::--------------------------------------
 
+::--------------------------------------
 if /i "%*" EQU "/u" (set Unattended=1) else (set Unattended=0)
+
+::--------------------------------------
 
 :: ### Configuration Options ###
 
@@ -451,19 +479,19 @@ if %OSType% EQU Win7 if exist "%SysPath%\wlms\wlms.exe" (
 sc query wlms | find /i "STOPPED" %_Nul1% || set _wlms=1
 )
 
-call :reg_query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion" "CurrentBuildNumber"     OS_VERSION
-call :reg_query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion" "DisplayVersion"         OS_VID
-call :reg_query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion" "EditionID"              OS_EDITION
-call :reg_query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion" "ProductName"            OS_PRODUCT
-call :reg_query "HKU\S-1-5-18\Control Panel\Desktop\MuiCached" "MachinePreferredUILanguages" OS_LANGCODE
+::call :reg_query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion" "CurrentBuildNumber"     OS_VERSION
+::call :reg_query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion" "DisplayVersion"         OS_VID
+::call :reg_query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion" "EditionID"              OS_EDITION
+::call :reg_query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion" "ProductName"            OS_PRODUCT
+::call :reg_query "HKU\S-1-5-18\Control Panel\Desktop\MuiCached" "MachinePreferredUILanguages" OS_LANGCODE
 
 set "xOS="
 if /i "%PROCESSOR_ARCHITECTURE%"=="amd64" set "xOS=x64"
 if /i "%PROCESSOR_ARCHITECTURE%"=="x86" set "xOS=x86"
 if /i "%PROCESSOR_ARCHITECTURE%"=="arm64" set "xOS=arm64"
 
-for /f "tokens=6 delims=[]. " %%# in ('ver') do set NameOS=%%#
-for /f "skip=2 tokens=2*" %%a in ('reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion" /v ProductName 2^>nul') do if not errorlevel 1 set "NameOS=%%b"
+::for /f "tokens=6 delims=[]. " %%# in ('ver') do set NameOS=%%#
+::for /f "skip=2 tokens=2*" %%a in ('reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion" /v ProductName 2^>nul') do if not errorlevel 1 set "NameOS=%%b"
 
 for /f "tokens=* delims=" %%a in ('powershell -nop -c "(([WMISEARCHER]'Select Version from Win32_OperatingSystem').Get()).Version"') do set "Version=%%a"
 for /f "tokens=* delims=" %%a in ('powershell -nop -c "([WMI]'').ConvertToDateTime((Get-WmiObject Win32_OperatingSystem).InstallDate)"') do set "OS_INSTALLDATE=%%a"
@@ -472,14 +500,20 @@ for /f "tokens=* delims=" %%a in ('powershell -nop -c "(Get-WmiObject Win32_Oper
 for /f "tokens=* delims=" %%a in ('powershell -nop -c "(Get-WmiObject Win32_OperatingSystem).Caption"') do set "OS_NAME=%%a"
 for /f "tokens=* delims=" %%a in ('powershell -nop -c "(Get-WmiObject Win32_Processor).Name"') do set "CPU_NAME=%%a"
 for /f "tokens=* delims=" %%a in ('powershell -nop -c "(Get-WmiObject SoftwareLicensingService).OA3xOriginalProductKey"') do set "OS_ORIGINALPRODUCTKEY=%%a"
-for /f "tokens=* delims=" %%a in ('powershell -nop -c "(Get-WmiObject win32_bios).Serialnumber"') do set "BIOS_SERIALNUMBER=%%a"
-for /f "tokens=* delims=" %%a in ('powershell -nop -c "(Get-WmiObject win32_bios).Version"') do set "BIOS_VERSION=%%a"
+for /f "tokens=* delims=" %%a in ('powershell -nop -c "(Get-WmiObject Win32_bios).Serialnumber"') do set "BIOS_SERIALNUMBER=%%a"
+for /f "tokens=* delims=" %%a in ('powershell -nop -c "(Get-WmiObject Win32_bios).Version"') do set "BIOS_VERSION=%%a"
 
+for /f "tokens=* delims=" %%a in ('powershell -nop -c "(Get-WmiObject Win32_BaseBoard).Manufacturer"') do set "BASEBOARD_MANUFACTURER=%%a"
+for /f "tokens=* delims=" %%a in ('powershell -nop -c "(Get-WmiObject Win32_BaseBoard).Product"') do set "BASEBOARD_PRODUCT=%%a"
+for /f "tokens=* delims=" %%a in ('powershell -nop -c "(Get-WmiObject Win32_BaseBoard).SerialNumber"') do set "BASEBOARD_SERIALNUMBER=%%a" 
 
 ::for /f "tokens=*" %%f in ('wmic cpu get NumberOfCores /value ^| find "="') do set "NumberOfCores=%%f"
 ::for /f "tokens=*" %%f in ('wmic cpu get Name | find /v "Name" ^| find "="') do set "CPU_NAME=%%f"
-IF [%BIOS_SERIALNUMBER%]==[] set "BIOS_SERIALNUMBER=Bios not SerialNumber"
-IF [%OS_ORIGINALPRODUCTKEY%]==[] set "OS_ORIGINALPRODUCTKEY=OEM key not present in firmware"
+
+::IF [%BIOS_SERIALNUMBER%]==[] set "BIOS_SERIALNUMBER=Bios not SerialNumber"
+::IF [%OS_ORIGINALPRODUCTKEY%]==[] set "OS_ORIGINALPRODUCTKEY=OEM key not present in firmware"
+::IF [%BIOS_SERIALNUMBER%] EQU [] set "BIOS_SERIALNUMBER=Bios not SerialNumber"
+::IF [%OS_ORIGINALPRODUCTKEY%] EQU [] set "OS_ORIGINALPRODUCTKEY=OEM key not present in firmware"
 
 set yy=%date:~-4%
 set mm=%date:~-7,2%
@@ -766,13 +800,15 @@ echo                [2] Remove Windows.old folder
 echo                [3] Font Cache Troubleshooter
 echo                [4] Edit Hosts File
 echo                [5] Flush DNS Resolver Cache
+echo                [6] Customize OEM Support Information
 echo.
 echo           %line3%
 echo.
 echo                [Q] Quit to Main Menu
-choice /c 12345Q /n /m "Choice :> "
+choice /c 123456Q /n /m "Choice :> "
 set s_el=%errorlevel%
-if %s_el%==6 goto :MainMenu
+if %s_el%==7 goto :MainMenu
+if %s_el%==6 goto :customizeOEM
 if %s_el%==5 goto :windows_Flushdns
 if %s_el%==4 goto :openHosts
 if %s_el%==3 goto :windows_FontCacheTroubleshooter
@@ -872,8 +908,8 @@ exit /b
 :E_IP
 cls
 set w=80
-set /a h=(%w%/5)*2
-mode con: cols=%w% lines=%h%
+set /a h=(%w%/4)*2
+mode con cols=%w% lines=%h%
 echo.
 echo Microsoft (R) Software Licensing.
 echo Copyright (C) Microsoft Corporation. All rights reserved.
@@ -992,7 +1028,9 @@ if %External% EQU 1 (
   echo Check KMS server reachable 
   echo Test ping: %KMS_IP%
   ping -n 1 %KMS_IP% | find "TTL=" >nul
-  if %errorlevel% equ 0 (
+
+  rem if %errorlevel% equ 0 (
+  if %errorlevel% == 0 (
     set pingrsl=Online
     rem Add commands here for successful ping
   ) else (
@@ -1002,6 +1040,9 @@ if %External% EQU 1 (
   echo KMS server is %pingrsl%
   echo.
 )
+
+
+
 echo %processtext%
 echo %linetext%
 echo Check time zone
@@ -9515,7 +9556,7 @@ for %%A in (%apps%) do (
         %_WindowsApps%\winget install -e --force --id %%A --silent --accept-source-agreements --accept-package-agreements
     ) else (
         echo %%A is installed. Attempting upgrade...
-        %_WindowsApps%\winget upgrade -e --force --id %%A --silent --accept-source-agreements --accept-package-agreements
+        %_WindowsApps%\winget upgrade -e --force --id %%A --accept-source-agreements --accept-package-agreements
         if !errorlevel! neq 0 (
             echo Upgrade failed for %%A or no update available.
         )
@@ -9622,7 +9663,7 @@ for %%A in (%apps%) do (
         %_WindowsApps%\winget install -e --force --id %%A --silent --accept-source-agreements --accept-package-agreements
     ) else (
         echo %%A is installed. Attempting upgrade...
-        %_WindowsApps%\winget upgrade -e --force --id %%A --silent --accept-source-agreements --accept-package-agreements
+        %_WindowsApps%\winget upgrade -e --force --id %%A --silen --accept-source-agreements --accept-package-agreements
         if !errorlevel! neq 0 (
             echo Upgrade failed for %%A or no update available.
         )
@@ -9754,7 +9795,7 @@ echo Windows Package Manager Upgrade
 echo %linebottom%
 echo.
 setlocal EnableDelayedExpansion
-%_WindowsApps%\winget upgrade --all --include-unknown
+%_WindowsApps%\winget upgrade --all
 endlocal
 del service.conf.lock >nul 2>&1
 del system.conf.lock >nul 2>&1
@@ -9813,6 +9854,35 @@ echo %processtext%
 echo %linetext%
 call :clearSPP
 call :clearOSPP
+echo.
+echo Press any key to continue.
+pause >nul
+goto :MainMenu
+rem ---END--------------------------------
+
+rem ---START------------------------------
+:customizeOEM
+setlocal EnableExtensions
+setlocal EnableDelayedExpansion
+cls
+echo.
+echo %linetop%
+echo Customize OEM Support Information
+echo %linebottom%
+echo.
+echo %processtext%
+echo %linetext%
+REM Open CMD as Administrator first (Right-click -> Run as administrator)
+REM Navigate to the OEM Information key (it might not exist, so we'll create it)
+reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\OEMInformation" /v Manufacturer /t REG_SZ /d "%BASEBOARD_MANUFACTURER%" /f
+reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\OEMInformation" /v Model /t REG_SZ /d "%BASEBOARD_PRODUCT%" /f
+reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\OEMInformation" /v SupportURL /t REG_SZ /d "https://aka.ms/aoh" /f
+reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\OEMInformation" /v SupportPhone /t REG_SZ /d "" /f
+reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\OEMInformation" /v SupportHours /t REG_SZ /d "" /f
+REM For the Logo:
+REM 1. Create a 120x120 pixel BMP file (e.g., C:\logo.bmp)
+REM 2. Use the command:
+reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\OEMInformation" /v Logo /t REG_SZ /d "" /f
 echo.
 echo Press any key to continue.
 pause >nul
@@ -10315,7 +10385,7 @@ GoTo :EOF
 
 :CONTINUE
 echo.
-ECHO ---------------------------------------------------------------------------
+echo %linetext%
 Echo %opt1% %opt2% %opt3% %opt4% %opt5% %opt6% %opt7% %opt8% %opt9% %optP% %optT% %optD% | FindStr /l /i "%on%" >nul 2>&1 && GoTo SKIP
 echo.
 ECHO No option were selected. O_o ?
