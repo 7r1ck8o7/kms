@@ -746,11 +746,11 @@ goto :supMenu_Config
 
 :supMenu_windows
 cls
-echo.
+echo:
 echo           %line3%
-echo.
+echo:
 echo                    Config Windows Options:
-echo.
+echo:
 echo                [1] Setting Feature LPR/LPD Printer
 echo                [2] Setting Windows Firewall
 echo                [3] Setting and access shared folders
@@ -773,126 +773,126 @@ echo                [S] Setting Require SMB Encryption
 echo                [M] Disable Microsoft Defender
 echo                [I] Show Icon Devices and Printers On Desktop
 echo                [O] Customize OEM Support Information
-echo.
+echo:
 echo           %line3%
-echo.
+echo:
 echo                [Q] Quit to Config Options
 echo           %line3%
 choice /c 1234567890DPAKGCRWSMIOQ /n /m "Choice :> "
 set s_el=%errorlevel%
-if %s_el%==23 goto :supMenu_Config
-if %s_el%==22 goto :customizeOEM
-if %s_el%==21 goto :showicon_devicesandprintersondesktop
-if %s_el%==20 goto :disable_MicrosoftDefender
-if %s_el%==19 goto :settingRequireSMBEncryption
-if %s_el%==18 goto :installWMIC
-if %s_el%==17 goto :changeComputerName
-if %s_el%==16 goto :changeWindowsEdition
-if %s_el%==15 goto :enableGroupPolicyEditor
-if %s_el%==14 goto :oemkeyreport
-if %s_el%==13 goto :resetAnyDeskID
-if %s_el%==12 goto :clearWindowsPrintSpooler
-if %s_el%==11 goto :clearTemporaryFiles
-if %s_el%==10 goto :specifyTargetWindows11
-if %s_el%==9 goto :specifyTargetWindows10
-if %s_el%==8 goto :batteryreport
-if %s_el%==7 goto :settingDSCalways
-if %s_el%==6 goto :settingRPC
-if %s_el%==5 goto :settingTabletMode
-if %s_el%==4 goto :settingWindowsLanguage
-if %s_el%==3 goto :settingShare
-if %s_el%==2 goto :settingWindowsFirewall
-if %s_el%==1 goto :settingLPR_LPD
+if %s_el% EQU 23 goto :supMenu_Config
+if %s_el% EQU 22 goto :customizeOEM
+if %s_el% EQU 21 goto :showicon_devicesandprintersondesktop
+if %s_el% EQU 20 goto :disable_MicrosoftDefender
+if %s_el% EQU 19 goto :settingRequireSMBEncryption
+if %s_el% EQU 18 goto :installWMIC
+if %s_el% EQU 17 goto :changeComputerName
+if %s_el% EQU 16 goto :changeWindowsEdition
+if %s_el% EQU 15 goto :enableGroupPolicyEditor
+if %s_el% EQU 14 goto :oemkeyreport
+if %s_el% EQU 13 goto :resetAnyDeskID
+if %s_el% EQU 12 goto :clearWindowsPrintSpooler
+if %s_el% EQU 11 goto :clearTemporaryFiles
+if %s_el% EQU 10 goto :specifyTargetWindows11
+if %s_el% EQU 9 goto :specifyTargetWindows10
+if %s_el% EQU 8 goto :batteryreport
+if %s_el% EQU 7 goto :settingDSCalways
+if %s_el% EQU 6 goto :settingRPC
+if %s_el% EQU 5 goto :settingTabletMode
+if %s_el% EQU 4 goto :settingWindowsLanguage
+if %s_el% EQU 3 goto :settingShare
+if %s_el% EQU 2 goto :settingWindowsFirewall
+if %s_el% EQU 1 goto :settingLPR_LPD
 goto :supMenu_Config
 
 :supMenu_office
 cls
-echo.
+echo:
 echo           %line3%
-echo.
+echo:
 echo                    Config Office Options:
-echo.
+echo:
 echo                [1] Setting Feature Sign-In Button in Office 2013
 echo                [2] Setting Feature Sign-In Button in Office 2016-2024
 echo                [3] Visual refresh of Office 365 Edition for Windows 
 echo                [4] Visual refresh of Office LTSC Edition for Windows 
-echo.
+echo:
 echo           %line3%
-echo.
+echo:
 echo                [Q] Quit to Config Options
 echo           %line3%
 choice /c 1234Q /n /m "Choice :> "
 set s_el=%errorlevel%
-if %s_el%==5 goto :supMenu_Config
-if %s_el%==4 goto :enable_VisualUI_LTSC
-if %s_el%==3 goto :enable_VisualUI_365
-if %s_el%==2 goto :settingSignIn2016
-if %s_el%==1 goto :settingSignIn2013
+if %s_el% EQU 5 goto :supMenu_Config
+if %s_el% EQU 4 goto :enable_VisualUI_LTSC
+if %s_el% EQU 3 goto :enable_VisualUI_365
+if %s_el% EQU 2 goto :settingSignIn2016
+if %s_el% EQU 1 goto :settingSignIn2013
 goto :supMenu_Config
 
 :supMenu_Troubleshooter
 cls
-echo.
+echo:
 echo           %line3%
-echo.
+echo:
 echo                    Troubleshooter:
-echo.
+echo:
 echo                [1] Windows Update Troubleshooter
 echo                [2] Remove Windows.old folder
 echo                [3] Font Cache Troubleshooter
 echo                [4] Edit Hosts File
 echo                [5] Flush DNS Resolver Cache
-echo.
+echo:
 echo           %line3%
-echo.
+echo:
 echo                [Q] Quit to Main Menu
 echo           %line3%
 choice /c 12345Q /n /m "Choice :> "
 set s_el=%errorlevel%
-if %s_el%==6 goto :MainMenu
-if %s_el%==5 goto :windows_Flushdns
-if %s_el%==4 goto :openHosts
-if %s_el%==3 goto :windows_FontCacheTroubleshooter
-if %s_el%==2 goto :delete_WindowsOld
-if %s_el%==1 goto :windows_UpdateTroubleshooter
+if %s_el% EQU 6 goto :MainMenu
+if %s_el% EQU 5 goto :windows_Flushdns
+if %s_el% EQU 4 goto :openHosts
+if %s_el% EQU 3 goto :windows_FontCacheTroubleshooter
+if %s_el% EQU 2 goto :delete_WindowsOld
+if %s_el% EQU 1 goto :windows_UpdateTroubleshooter
 goto :supMenu_Troubleshooter
 
 
 :supMenu_Store
 cls
-echo.
+echo:
 echo           %line3%
-echo.
+echo:
 echo                    Microsoft Store Options:
-echo.
+echo:
 echo                [1] Install Framework Runtime Form WinGet
 echo                [2] Install Softwere Form WinGet
 echo                [3] Install Softwere Hardware Diagnostics Form WinGet
 echo                [4] Install Softwere Net Speed Test
 echo                [5] Install Application Social Form WinGet
-echo                [6] Install NET Framework 3.5 (Online Required)
+echo                [6] Install .NET Framework 3.5 on Windows and Windows Server (Online Required)
 echo                [7] Upgrade Softwere Form WinGet
 echo                [8] Install Office 365
 echo                [9] Install Office 2021 LTSC
 echo                [0] Install Office 2024 LTSC
-echo.
+echo:
 echo           %line3%
-echo.
+echo:
 echo                [Q] Quit to Main Menu
 echo           %line3%
 choice /c 1234567890Q /n /m "Choice :> "
 set s_el=%errorlevel%
-if %s_el%==11 goto :MainMenu
-if %s_el%==10 goto :install_o2024lts
-if %s_el%==9 goto :install_o2021lts
-if %s_el%==8 goto :install_o365
-if %s_el%==7 goto :upgradeSoftwere
-if %s_el%==6 goto :install_NetFx3
-if %s_el%==5 goto :installSocial
-if %s_el%==4 goto :installNetSpeedTest
-if %s_el%==3 goto :installHardwarediagnostics
-if %s_el%==2 goto :installSoftware
-if %s_el%==1 goto :installFramework
+if %s_el% EQU 11 goto :MainMenu
+if %s_el% EQU 10 goto :install_o2024lts
+if %s_el% EQU 9 goto :install_o2021lts
+if %s_el% EQU 8 goto :install_o365
+if %s_el% EQU 7 goto :upgradeSoftwere
+if %s_el% EQU 6 goto :install_NetFx3
+if %s_el% EQU 5 goto :installSocial
+if %s_el% EQU 4 goto :installNetSpeedTest
+if %s_el% EQU 3 goto :installHardwarediagnostics
+if %s_el% EQU 2 goto :installSoftware
+if %s_el% EQU 1 goto :installFramework
 goto :supMenu_Store
 
 :colorprep
@@ -1057,9 +1057,9 @@ if %winbuild% GEQ 9600 (
   reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows NT\CurrentVersion\Software Protection Platform" /v NoGenTicket /t REG_DWORD /d 1 /f %_Nul3%
   if %winbuild% EQU 14393 reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows NT\CurrentVersion\Software Protection Platform" /v NoAcquireGT /t REG_DWORD /d 1 /f %_Nul3%
 )
-echo.
-echo Microsoft (R) Software Licensing.
-echo (c) Microsoft Corporation. All rights reserved.
+echo:
+echo Microsoft ^(R^) Software Licensing.
+echo ^(c^) Microsoft Corporation. All rights reserved.
 echo =========================================================
 echo:
 echo Activation Mode: %mode%
@@ -1199,7 +1199,7 @@ set S_OK=1
 call :RunSPP
 if %ActOffice% NEQ 0 call :RunOSPP
 if %ActOffice% EQU 0 (
-echo.
+echo:
 echo %processtext%
 echo %linetext%
 echo Disable activation feature for Office.
@@ -1225,7 +1225,7 @@ if %_pwsh% equ 0 sc start sppsvc trigger=reeval;sessionid=0 %_Nul3%
 if %_verb% EQU 1 (
 echo.&echo %line3%&echo.
 if %External% EQU 0 if "%_rtr%"=="DoActivate" (
-echo.
+echo:
 echo %noticetext%
 echo Make sure to exclude this file in the Antivirus protection.
 echo %SystemRoot%\System32\SppExtComObjHook.dll)
@@ -1341,7 +1341,7 @@ rem nothing installed
 if %loc_off24% EQU 0 if %loc_off21% EQU 0 if %loc_off19% EQU 0 if %loc_off16% EQU 0 if %loc_off15% EQU 0 (
   if %winbuild% GEQ 9200 (
     if %OffUWP% EQU 0 (
-      echo.
+      echo:
       echo %noticetext%
       echo ^<No installed office 2013-2024 product detected^>
     ) else (
@@ -1352,7 +1352,7 @@ if %loc_off24% EQU 0 if %loc_off21% EQU 0 if %loc_off19% EQU 0 if %loc_off16% EQ
     )
   if %winbuild% LSS 9200 (
     if %loc_off14% EQU 0 (
-      echo.
+      echo:
       echo %noticetext%
       echo ^<No installed office %aword% product detected^>
       exit /b
@@ -1763,13 +1763,13 @@ set RanR2V=0
 for %%A in (15,16,19,21,24) do set aC2R%%A=0
 if %winbuild% LSS 9200 (set "aword=2010-2024") else (set "aword=2010")
 if %OsppHook% EQU 0 (
-  echo.
+  echo:
   echo %noticetext%
   echo ^<No installed office %aword% product detected^>
   exit /b
 )
 if %winbuild% GEQ 9200 if %loc_off14% EQU 0 (
-  echo.
+  echo:
   echo %noticetext%
   echo ^<No installed office %aword% product detected^>
   exit /b
@@ -2311,15 +2311,14 @@ if %Silent% EQU 0 if %_Debug% EQU 0 (
 %_Nul3% %_psc% "&%_buf%"
 if %Unattend% EQU 0 title %_title%
 )
-echo.
+echo:
 echo Microsoft ^(R^) Software Licensing.
-echo Copyright ^(C^) Microsoft Corporation. All rights reserved.
+echo ^(c^) Microsoft Corporation. All rights reserved.
 echo =========================================================
-echo.
-::echo.&echo %line3%&echo.
+echo:
+echo Installing KMS host.
 echo %processtext%
 echo %linetext%
-echo Installing KMS host.
 echo ^<Install kms host successful^>
 )
 set "AddExc="
@@ -2328,10 +2327,10 @@ if %winbuild% GEQ 9600 (
   %_qr% %_Nul3% && set "AddExc= and Windows Defender exclusion"
 )
 if %_verb% EQU 1 (
-echo.
+echo:
+echo Adding File.
 echo %processtext%
 echo %linetext%
-echo Adding File.
 echo ^<Add file successful^>
 echo %AddExc%
 echo %SystemRoot%\System32\SppExtComObjHook.dll
@@ -2351,10 +2350,10 @@ set "TEMP=%SystemRoot%\Temp"
 endlocal
 if %Unattend% EQU 0 title %_title%
 if %_verb% EQU 1 (
-echo.
+echo:
+echo Adding Registry Keys.
 echo %processtext%
 echo %linetext%
-echo Adding Registry Keys.
 echo ^<Add registry keys successful^>
 )
 if %SSppHook% NEQ 0 call :CreateIFEOEntry %SppVer%
@@ -2401,20 +2400,19 @@ if %Silent% EQU 0 if %_Debug% EQU 0 (
 %_Nul3% %_psc% "&%_buf%"
 if %Unattend% EQU 0 title %_title%
 )
-echo.
+echo:
 echo Microsoft ^(R^) Software Licensing.
-echo Copyright ^(C^) Microsoft Corporation. All rights reserved.
+echo ^(c^) Microsoft Corporation. All rights reserved.
 echo =========================================================
-echo.
-::echo.&echo %line3%&echo.
-echo %processtext%
-echo %linetext%
+echo:
 echo Uninstall KMS host.
-echo ^<Uninstall kms host successful^>
-echo.
 echo %processtext%
 echo %linetext%
+echo ^<Uninstall kms host successful^>
+echo:
 echo Removing Files%RemExc%.
+echo %processtext%
+echo %linetext%
 echo ^<Remove files successful^>
 )
 for %%# in (SppExtComObjHookAvrf.dll,SppExtComObjHook.dll,SppExtComObjPatcher.dll,SppExtComObjPatcher.exe) do if exist "%SysPath%\%%#" (
@@ -2430,10 +2428,10 @@ if exist %w7inf% (
 	del /f /q %w7inf%
 )
 if %_verb% EQU 1 (
-echo.
+echo:
+echo Removing Registry Keys.
 echo %processtext%
 echo %linetext%
-echo Removing Registry Keys.
 echo ^<Remove registry keys successful^>
 )
 for %%# in (SppExtComObj.exe,sppsvc.exe,osppsvc.exe) do reg query "%IFEO%\%%#" %_Nul3% && (
@@ -2441,10 +2439,10 @@ for %%# in (SppExtComObj.exe,sppsvc.exe,osppsvc.exe) do reg query "%IFEO%\%%#" %
 )
 if %OSType% EQU Win8 schtasks /query /tn "%_TaskEx%" %_Nul3% && (
 if %_verb% EQU 1 (
-echo.
+echo:
+echo Removing Scheduled Task.
 echo %processtext%
 echo %linetext%
-echo Removing Scheduled Task.
 echo ^<Remove scheduled task successful^>
 echo %_TaskEx%
 )
@@ -9877,7 +9875,7 @@ rem Windows Package Manager Upgrade
 cls
 echo.
 echo %linetop%
-echo Install NET Framework 3.5 (Online)
+echo Install .NET Framework 3.5 on Windows and Windows Server (Online)
 echo %linebottom%
 echo.
 setlocal EnableDelayedExpansion
