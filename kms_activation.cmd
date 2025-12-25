@@ -842,14 +842,20 @@ echo                [2] Remove Windows.old folder
 echo                [3] Font Cache Troubleshooter
 echo                [4] Edit Hosts File
 echo                [5] Flush DNS Resolver Cache
+echo                [6] Back Up User Files
+echo                [7] Bypass Windows 11 Upgrade Assistant
+echo                [8] Native NVMe support in Windows
 echo:
 echo           %line3%
 echo:
 echo                [Q] Quit to Main Menu
 echo           %line3%
-choice /c 12345Q /n /m "Choice :> "
+choice /c 12345678Q /n /m "Choice :> "
 set s_el=%errorlevel%
-if %s_el% EQU 6 goto :MainMenu
+if %s_el% EQU 9 goto :MainMenu
+if %s_el% EQU 8 goto :native_NVMe
+if %s_el% EQU 7 goto :Skip_TPM_Check_on_Dynamic_Update
+if %s_el% EQU 6 goto :windows_backup
 if %s_el% EQU 5 goto :windows_Flushdns
 if %s_el% EQU 4 goto :openHosts
 if %s_el% EQU 3 goto :windows_FontCacheTroubleshooter
@@ -9528,7 +9534,7 @@ net stop FontCache
 del /q /f /s /a %windir%\ServiceProfiles\LocalService\AppData\Local\FontCache\*.dat
 del /q /f /s /a %localappdata%\FontCache\*.dat
 net start FontCache
-Call :prompt_rebootvb
+call :prompt_rebootvb
 echo %exittext%
 echo %linetext%
 echo.
@@ -9557,15 +9563,122 @@ goto :supMenu_Troubleshooter
 rem ---END--------------------------------
 
 rem ---START------------------------------
-rem flushed the DNS Resolver Cache.
+:customizeOEM
+cls
+echo.
+echo %linetop%
+echo Customize OEM Support Information
+echo %linebottom%
+echo.
+echo %processtext%
+echo %linetext%
+REM Open CMD as Administrator first (Right-click -> Run as administrator)
+REM Navigate to the OEM Information key (it might not exist, so we'll create it)
+reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\OEMInformation" /v Manufacturer /t REG_SZ /d "%BASEBOARD_MANUFACTURER%" /f >nul
+reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\OEMInformation" /v Model /t REG_SZ /d "%BASEBOARD_PRODUCT%" /f >nul
+reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\OEMInformation" /v SupportURL /t REG_SZ /d "https://aka.ms/aoh" /f >nul
+reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\OEMInformation" /v SupportPhone /t REG_SZ /d "" /f >nul
+reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\OEMInformation" /v SupportHours /t REG_SZ /d "" /f >nul
+REM For the Logo:
+REM 1. Create a 120x120 pixel BMP file (e.g., C:\logo.bmp)
+REM 2. Use the command:
+reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\OEMInformation" /v Logo /t REG_SZ /d "" /f >nul
+echo The operation completed successfully.
+echo.
+echo Press any key to continue.
+pause >nul
+goto :MainMenu
+rem ---END--------------------------------
+
+rem ---START------------------------------
+:native_NVMe
+cls
+echo.
+echo %linetop%
+echo Native NVMe support in Windows
+echo %linebottom%
+echo.
+echo %processtext%
+echo %linetext%
+reg add HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Policies\Microsoft\FeatureManagement\Overrides /v 735209102 /t REG_DWORD /d 1 /f >nul
+reg add HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Policies\Microsoft\FeatureManagement\Overrides /v 1853569164 /t REG_DWORD /d 1 /f >nul
+reg add HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Policies\Microsoft\FeatureManagement\Overrides /v 156965516 /t REG_DWORD /d 1 /f >nul
+echo The operation completed successfully.
+call :prompt_rebootvb
+pause >nul
+goto :MainMenu
+rem ---END--------------------------------
+rem ---START------------------------------
+
+:Skip_TPM_Check_on_Dynamic_Update
+cls
+echo.
+echo %linetop%
+echo Bypass Windows 11 Upgrade Assistant
+echo Setup Hardware Checks (TPM, CPU, RAM)
+echo %linebottom%
+echo.
+echo %processtext%
+echo %linetext%
+reg delete "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\CompatMarkers" /f >nul
+reg delete "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Shared" /f >nul
+reg delete "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\TargetVersionUpgradeExperienceIndicators" /f >nul
+reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\HwReqChk" /f /v HwReqChkVars /t REG_MULTI_SZ /s , /d "SQ_SecureBootCapable=TRUE,SQ_SecureBootEnabled=TRUE,SQ_TpmVersion=2,SQ_RamMB=8192," >nul
+reg add "HKLM\SYSTEM\Setup\MoSetup" /f /v AllowUpgradesWithUnsupportedTPMOrCPU /t REG_DWORD /d 1 >nul
+reg add "HKEY_CURRENT_USER\Software\Microsoft\PCHC" /f /v UpgradeEligibility /t REG_DWORD /d 1 >nul
+echo The operation completed successfully.
+echo.
+echo Press any key to continue.
+pause >nul
+goto :MainMenu
+rem ---END--------------------------------
+
+rem ---START------------------------------
+:reset_thumbnails
+cls
+echo.
+echo %linetop%
+echo Fix Thumbnails Preview Not Showing
+echo %linebottom%
+echo.
+echo %processtext%
+echo %linetext%
+rem taskkill /f /m /im explorer.exe >nul
+rem del /f /s /q /a %LocalAppData%\Microsoft\Windows\Explorer\thumbcache_*.db
+rem start explorer.exe >nul
+rem taskkill /f /im explorer.exe && start explorer.exe
+rem Cleaning Windows Thumbnail Cache
+echo [!] Checking if "%LOCALAPPDATA%\Microsoft\Windows\Explorer\thumbcache_*.db" exists...
+if exist "%LOCALAPPDATA%\Microsoft\Windows\Explorer\thumbcache_*.db" (
+  echo [+] Deleting Windows Thumbnail Cache.
+  taskkill /f /im explorer.exe
+  timeout 2 /nobreak>nul
+  del /q /f /s /a "%LOCALAPPDATA%\Microsoft\Windows\Explorer\thumbcache_*.db" >nul 2>&1
+  timeout 2 /nobreak>nul
+  start %WINDIR%\explorer.exe
+) else (
+  echo [!] Directory not found: "%LOCALAPPDATA%\Microsoft\Windows\Explorer\thumbcache_*.db"
+)
+echo The operation completed successfully.
+echo.
+echo Press any key to continue.
+pause >nul
+goto :MainMenu
+rem ---END--------------------------------s
+
+rem ---START------------------------------
+rem 
 :windows_backup
 cls
 echo.
 echo %linetop%
-echo Font Cache Troubleshooter
+echo Back Up User Files
 echo %linebottom%
 echo.
-ipconfig /flushdns
+For /f "tokens=2-4 delims=/ " %%a in ('date /t') do (set mydate=%%c-%%a-%%b)
+For /f "tokens=1-2 delims=/:" %%a in ('time /t') do (set mytime=%%a%%b)
+rem echo %mydate%_%mytime%
+robocopy "%USERPROFILE%" "D:\Backup_%mydate%_%mytime%\%USERNAME%_Backup" /E /ZB /R:5 /W:5 /MT:16 /LOG:D:\Backup_%mydate%_%mytime%\%USERNAME%_BackupLog.txt
 echo.
 echo %exittext%
 echo %linetext%
@@ -9731,7 +9844,6 @@ pause >nul
 goto :supMenu_Store
 rem ---END--------------------------------
 
-
 rem ---START------------------------------
 rem Windows Package Manager Install
 :installNetSpeedTest
@@ -9868,7 +9980,6 @@ goto :supMenu_Troubleshooter
 exit /b
 rem ---END--------------------------------
 
-
 rem ---START------------------------------
 rem Windows Package Manager Upgrade
 :install_NetFx3
@@ -9891,8 +10002,6 @@ rem ---END--------------------------------
 
 rem ---START------------------------------
 :ClearKMShost
-setlocal EnableExtensions
-setlocal EnableDelayedExpansion
 cls
 echo.
 echo %linetop%
@@ -9910,40 +10019,7 @@ goto :MainMenu
 rem ---END--------------------------------
 
 rem ---START------------------------------
-:customizeOEM
-setlocal EnableExtensions
-setlocal EnableDelayedExpansion
-cls
-echo.
-echo %linetop%
-echo Customize OEM Support Information
-echo %linebottom%
-echo.
-echo %processtext%
-echo %linetext%
-REM Open CMD as Administrator first (Right-click -> Run as administrator)
-REM Navigate to the OEM Information key (it might not exist, so we'll create it)
-reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\OEMInformation" /v Manufacturer /t REG_SZ /d "%BASEBOARD_MANUFACTURER%" /f >nul
-reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\OEMInformation" /v Model /t REG_SZ /d "%BASEBOARD_PRODUCT%" /f >nul
-reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\OEMInformation" /v SupportURL /t REG_SZ /d "https://aka.ms/aoh" /f >nul
-reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\OEMInformation" /v SupportPhone /t REG_SZ /d "" /f >nul
-reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\OEMInformation" /v SupportHours /t REG_SZ /d "" /f >nul
-REM For the Logo:
-REM 1. Create a 120x120 pixel BMP file (e.g., C:\logo.bmp)
-REM 2. Use the command:
-reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\OEMInformation" /v Logo /t REG_SZ /d "" /f >nul
-echo The operation completed successfully.
-echo.
-echo Press any key to continue.
-pause >nul
-goto :MainMenu
-rem ---END--------------------------------
-
-
-rem ---START------------------------------
 :install_o2021lts
-setlocal EnableExtensions
-setlocal EnableDelayedExpansion
 cls
 TITLE Microsoft Office LTSC 2024 Professional Plus - Online Installer
 PushD "%~dp0"
@@ -10088,147 +10164,147 @@ ECHO Creating Configuration File for Office LTSC 2021 Professional Plus %CPU%-bi
 echo %processtext%
 echo %linetext%
 SETLOCAL
-Set "OCS2024LTSC=%config_o2021ltscxml%"
-                                     >%OCS2024LTSC% ECHO ^<Configuration^>
-If "%optO%,%OFiles%"=="%on%,%off%"  >>%OCS2024LTSC% ECHO   ^<Add OfficeClientEdition="%CPU%" Channel="PerpetualVL2021"^>
-If "%optS%,%OFiles%"=="%on%,%off%"  >>%OCS2024LTSC% ECHO   ^<Add OfficeClientEdition="%CPU%" Channel="PerpetualVL2021" MigrateArch="TRUE"^>
-If "%optS%,%OFiles%"=="%on%,%on%"   >>%OCS2024LTSC% ECHO   ^<Add OfficeClientEdition="%CPU%" Channel="PerpetualVL2021" MigrateArch="TRUE" SourcePath="%CD%"^>
-                                    >>%OCS2024LTSC% ECHO     ^<Product ID="ProPlus2021Volume" PIDKEY="FXYTK-NJJ8C-GB6DW-3DYQT-6F7TH"^>
-                                    >>%OCS2024LTSC% ECHO       ^<Language ID="MatchOS" Fallback="en-US" /^>
-                                    >>%OCS2024LTSC% ECHO       ^<Language ID="en-us" /^>
-                                    >>%OCS2024LTSC% ECHO       ^<Language ID="MatchInstalled" TargetProduct="All" /^>
-                                    >>%OCS2024LTSC% ECHO       ^<Language ID="th-th" /^>
-If "%opt1%"=="%off%"                >>%OCS2024LTSC% ECHO       ^<ExcludeApp ID="Word" /^>
-If "%opt2%"=="%off%"                >>%OCS2024LTSC% ECHO       ^<ExcludeApp ID="Excel" /^>
-If "%opt3%"=="%off%"                >>%OCS2024LTSC% ECHO       ^<ExcludeApp ID="PowerPoint" /^>
-If "%opt4%"=="%off%"                >>%OCS2024LTSC% ECHO       ^<ExcludeApp ID="Outlook" /^>
-If "%opt5%"=="%off%"                >>%OCS2024LTSC% ECHO       ^<ExcludeApp ID="OneNote" /^>
-If "%opt6%"=="%off%"                >>%OCS2024LTSC% ECHO       ^<ExcludeApp ID="Publisher" /^>
-If "%opt7%"=="%off%"                >>%OCS2024LTSC% ECHO       ^<ExcludeApp ID="Access" /^>
-If "%optT%"=="%off%"                >>%OCS2024LTSC% ECHO       ^<ExcludeApp ID="Teams" /^>
-If "%optD%"=="%off%"                >>%OCS2024LTSC% ECHO       ^<ExcludeApp ID="OneDrive" /^>
-                                    >>%OCS2024LTSC% ECHO       ^<ExcludeApp ID="Lync" /^>
-                                    >>%OCS2024LTSC% ECHO       ^<ExcludeApp ID="Groove" /^>
-                                    >>%OCS2024LTSC% ECHO       ^<ExcludeApp ID="Bing" /^>
-                                    >>%OCS2024LTSC% ECHO     ^</Product^>
-If "%opt8%"=="%on%"                 >>%OCS2024LTSC% ECHO     ^<Product ID="VisioPro2021Volume" PIDKEY="KNH8D-FGHT4-T8RK3-CTDYJ-K2HT4"^>
-If "%opt8%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="MatchOS" Fallback="en-US" /^>
-If "%opt8%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<ExcludeApp ID="Bing" /^>
-If "%opt8%"=="%on%"                 >>%OCS2024LTSC% ECHO     ^</Product^>
-If "%opt9%"=="%on%"                 >>%OCS2024LTSC% ECHO     ^<Product ID="ProjectPro2021Volume" PIDKEY="FTNWT-C6WBT-8HMGF-K9PRX-QV9H8"^>
-If "%opt9%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="MatchOS" Fallback="en-US" /^>
-If "%opt9%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<ExcludeApp ID="Bing" /^>
-If "%opt9%"=="%on%"                 >>%OCS2024LTSC% ECHO     ^</Product^>
-If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO     ^<Product ID="ProofingTools"^>
-If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="MatchOS" Fallback="en-US" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="af-ZA" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="sq-AL" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="ar-SA" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="hy-AM" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="as-IN" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="az-Latn-AZ" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="bn-BD" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="bn-IN" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="eu-ES" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="bs-Latn-BA" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="bg-BG" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="ca-ES" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="zh-CN" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="zh-TW" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="hr-HR" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="cs-CZ" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="da-DK" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="nl-NL" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="en-US" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="et-EE" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="fi-FI" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="fr-FR" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="gl-ES" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="ka-GE" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="de-DE" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="el-GR" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="gu-IN" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="ha-Latn-NG" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="he-IL" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="hi-IN" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="hu-HU" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="is-IS" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="ig-NG" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="id-ID" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="ga-IE" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="xh-ZA" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="zu-ZA" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="it-IT" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="ja-JP" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="kn-IN" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="kk-KZ" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="rw-RW" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="sw-KE" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="kok-IN" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="ko-KR" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="ky-KG" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="lv-LV" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="lt-LT" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="lb-LU" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="mk-MK" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="ms-MY" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="ml-IN" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="mt-MT" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="mi-NZ" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="mr-IN" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="ne-NP" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="nb-NO" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="nn-NO" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="or-IN" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="ps-AF" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="fa-IR" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="pl-PL" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="pt-BR" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="pt-PT" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="pa-IN" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="ro-RO" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="rm-CH" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="ru-RU" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="gd-GB" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="sr-Cyrl-BA" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="sr-Cyrl-RS" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="sr-Latn-RS" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="nso-ZA" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="tn-ZA" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="si-LK" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="sk-SK" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="sl-SI" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="es-ES" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="sv-SE" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="ta-IN" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="tt-RU" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="te-IN" /^>
-If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="th-TH" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="tr-TR" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="uk-UA" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="ur-PK" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="uz-Latn-UZ" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="ca-ES-Valencia" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="vi-VN" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="cy-GB" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="wo-SN" /^>
-::If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<Language ID="yo-NG" /^>
-If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO       ^<ExcludeApp ID="Bing" /^>
-If "%optP%"=="%on%"                 >>%OCS2024LTSC% ECHO     ^</Product^>
-                                    >>%OCS2024LTSC% ECHO     ^<Product ID="LanguagePack"^>
-                                    >>%OCS2024LTSC% ECHO       ^<Language ID="MatchInstalled" /^>
-                                    >>%OCS2024LTSC% ECHO       ^<ExcludeApp ID="Bing" /^>
-                                    >>%OCS2024LTSC% ECHO     ^</Product^>
-                                    >>%OCS2024LTSC% ECHO   ^</Add^>
-If "%optS%"=="%on%"                 >>%OCS2024LTSC% ECHO   ^<Updates Enabled="TRUE" /^>
-If "%optS%"=="%on%"                 >>%OCS2024LTSC% ECHO   ^<Display Level="Full" AcceptEULA="TRUE" /^>
-If "%optS%"=="%on%"                 >>%OCS2024LTSC% ECHO   ^<Property Name="ForceAppShutdown" Value="TRUE" /^>
-If "%optS%"=="%on%"                 >>%OCS2024LTSC% ECHO   ^<AppSettings^>
-If "%optS%,%opt1%"=="%on%,%on%"     >>%OCS2024LTSC% ECHO     ^<User Key="Software\Microsoft\Office\16.0\Word\Options" Name="defaultformat" Value="" Type="REG_SZ" App="word16" Id="L_SaveWordfilesas" /^>
-If "%optS%,%opt2%"=="%on%,%on%"     >>%OCS2024LTSC% ECHO     ^<User Key="Software\Microsoft\Office\16.0\Excel\Options" Name="defaultformat" Value="51" Type="REG_DWORD" App="excel16" Id="L_SaveExcelfilesas" /^>
-If "%optS%,%opt3%"=="%on%,%on%"     >>%OCS2024LTSC% ECHO     ^<User Key="Software\Microsoft\Office\16.0\PowerPoint\Options" Name="defaultformat" Value="27" Type="REG_DWORD" App="ppt16" Id="L_SavePowerPointfilesas" /^>
-If "%optS%"=="%on%"                 >>%OCS2024LTSC% ECHO   ^</AppSettings^>
-                                    >>%OCS2024LTSC% ECHO ^</Configuration^>
+Set "OCS2021LTSC=%config_o2021ltscxml%"
+                                     >%OCS2021LTSC% ECHO ^<Configuration^>
+If "%optO%,%OFiles%"=="%on%,%off%"  >>%OCS2021LTSC% ECHO   ^<Add OfficeClientEdition="%CPU%" Channel="PerpetualVL2021"^>
+If "%optS%,%OFiles%"=="%on%,%off%"  >>%OCS2021LTSC% ECHO   ^<Add OfficeClientEdition="%CPU%" Channel="PerpetualVL2021" MigrateArch="TRUE"^>
+If "%optS%,%OFiles%"=="%on%,%on%"   >>%OCS2021LTSC% ECHO   ^<Add OfficeClientEdition="%CPU%" Channel="PerpetualVL2021" MigrateArch="TRUE" SourcePath="%CD%"^>
+                                    >>%OCS2021LTSC% ECHO     ^<Product ID="ProPlus2021Volume" PIDKEY="FXYTK-NJJ8C-GB6DW-3DYQT-6F7TH"^>
+                                    >>%OCS2021LTSC% ECHO       ^<Language ID="MatchOS" Fallback="en-US" /^>
+                                    >>%OCS2021LTSC% ECHO       ^<Language ID="en-us" /^>
+                                    >>%OCS2021LTSC% ECHO       ^<Language ID="MatchInstalled" TargetProduct="All" /^>
+                                    >>%OCS2021LTSC% ECHO       ^<Language ID="th-th" /^>
+If "%opt1%"=="%off%"                >>%OCS2021LTSC% ECHO       ^<ExcludeApp ID="Word" /^>
+If "%opt2%"=="%off%"                >>%OCS2021LTSC% ECHO       ^<ExcludeApp ID="Excel" /^>
+If "%opt3%"=="%off%"                >>%OCS2021LTSC% ECHO       ^<ExcludeApp ID="PowerPoint" /^>
+If "%opt4%"=="%off%"                >>%OCS2021LTSC% ECHO       ^<ExcludeApp ID="Outlook" /^>
+If "%opt5%"=="%off%"                >>%OCS2021LTSC% ECHO       ^<ExcludeApp ID="OneNote" /^>
+If "%opt6%"=="%off%"                >>%OCS2021LTSC% ECHO       ^<ExcludeApp ID="Publisher" /^>
+If "%opt7%"=="%off%"                >>%OCS2021LTSC% ECHO       ^<ExcludeApp ID="Access" /^>
+If "%optT%"=="%off%"                >>%OCS2021LTSC% ECHO       ^<ExcludeApp ID="Teams" /^>
+If "%optD%"=="%off%"                >>%OCS2021LTSC% ECHO       ^<ExcludeApp ID="OneDrive" /^>
+                                    >>%OCS2021LTSC% ECHO       ^<ExcludeApp ID="Lync" /^>
+                                    >>%OCS2021LTSC% ECHO       ^<ExcludeApp ID="Groove" /^>
+                                    >>%OCS2021LTSC% ECHO       ^<ExcludeApp ID="Bing" /^>
+                                    >>%OCS2021LTSC% ECHO     ^</Product^>
+If "%opt8%"=="%on%"                 >>%OCS2021LTSC% ECHO     ^<Product ID="VisioPro2021Volume" PIDKEY="KNH8D-FGHT4-T8RK3-CTDYJ-K2HT4"^>
+If "%opt8%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="MatchOS" Fallback="en-US" /^>
+If "%opt8%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<ExcludeApp ID="Bing" /^>
+If "%opt8%"=="%on%"                 >>%OCS2021LTSC% ECHO     ^</Product^>
+If "%opt9%"=="%on%"                 >>%OCS2021LTSC% ECHO     ^<Product ID="ProjectPro2021Volume" PIDKEY="FTNWT-C6WBT-8HMGF-K9PRX-QV9H8"^>
+If "%opt9%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="MatchOS" Fallback="en-US" /^>
+If "%opt9%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<ExcludeApp ID="Bing" /^>
+If "%opt9%"=="%on%"                 >>%OCS2021LTSC% ECHO     ^</Product^>
+If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO     ^<Product ID="ProofingTools"^>
+If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="MatchOS" Fallback="en-US" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="af-ZA" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="sq-AL" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="ar-SA" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="hy-AM" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="as-IN" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="az-Latn-AZ" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="bn-BD" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="bn-IN" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="eu-ES" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="bs-Latn-BA" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="bg-BG" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="ca-ES" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="zh-CN" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="zh-TW" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="hr-HR" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="cs-CZ" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="da-DK" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="nl-NL" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="en-US" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="et-EE" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="fi-FI" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="fr-FR" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="gl-ES" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="ka-GE" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="de-DE" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="el-GR" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="gu-IN" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="ha-Latn-NG" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="he-IL" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="hi-IN" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="hu-HU" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="is-IS" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="ig-NG" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="id-ID" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="ga-IE" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="xh-ZA" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="zu-ZA" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="it-IT" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="ja-JP" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="kn-IN" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="kk-KZ" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="rw-RW" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="sw-KE" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="kok-IN" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="ko-KR" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="ky-KG" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="lv-LV" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="lt-LT" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="lb-LU" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="mk-MK" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="ms-MY" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="ml-IN" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="mt-MT" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="mi-NZ" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="mr-IN" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="ne-NP" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="nb-NO" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="nn-NO" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="or-IN" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="ps-AF" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="fa-IR" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="pl-PL" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="pt-BR" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="pt-PT" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="pa-IN" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="ro-RO" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="rm-CH" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="ru-RU" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="gd-GB" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="sr-Cyrl-BA" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="sr-Cyrl-RS" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="sr-Latn-RS" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="nso-ZA" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="tn-ZA" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="si-LK" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="sk-SK" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="sl-SI" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="es-ES" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="sv-SE" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="ta-IN" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="tt-RU" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="te-IN" /^>
+If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="th-TH" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="tr-TR" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="uk-UA" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="ur-PK" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="uz-Latn-UZ" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="ca-ES-Valencia" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="vi-VN" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="cy-GB" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="wo-SN" /^>
+::If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<Language ID="yo-NG" /^>
+If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO       ^<ExcludeApp ID="Bing" /^>
+If "%optP%"=="%on%"                 >>%OCS2021LTSC% ECHO     ^</Product^>
+                                    >>%OCS2021LTSC% ECHO     ^<Product ID="LanguagePack"^>
+                                    >>%OCS2021LTSC% ECHO       ^<Language ID="MatchInstalled" /^>
+                                    >>%OCS2021LTSC% ECHO       ^<ExcludeApp ID="Bing" /^>
+                                    >>%OCS2021LTSC% ECHO     ^</Product^>
+                                    >>%OCS2021LTSC% ECHO   ^</Add^>
+If "%optS%"=="%on%"                 >>%OCS2021LTSC% ECHO   ^<Updates Enabled="TRUE" /^>
+If "%optS%"=="%on%"                 >>%OCS2021LTSC% ECHO   ^<Display Level="Full" AcceptEULA="TRUE" /^>
+If "%optS%"=="%on%"                 >>%OCS2021LTSC% ECHO   ^<Property Name="ForceAppShutdown" Value="TRUE" /^>
+If "%optS%"=="%on%"                 >>%OCS2021LTSC% ECHO   ^<AppSettings^>
+If "%optS%,%opt1%"=="%on%,%on%"     >>%OCS2021LTSC% ECHO     ^<User Key="Software\Microsoft\Office\16.0\Word\Options" Name="defaultformat" Value="" Type="REG_SZ" App="word16" Id="L_SaveWordfilesas" /^>
+If "%optS%,%opt2%"=="%on%,%on%"     >>%OCS2021LTSC% ECHO     ^<User Key="Software\Microsoft\Office\16.0\Excel\Options" Name="defaultformat" Value="51" Type="REG_DWORD" App="excel16" Id="L_SaveExcelfilesas" /^>
+If "%optS%,%opt3%"=="%on%,%on%"     >>%OCS2021LTSC% ECHO     ^<User Key="Software\Microsoft\Office\16.0\PowerPoint\Options" Name="defaultformat" Value="27" Type="REG_DWORD" App="ppt16" Id="L_SavePowerPointfilesas" /^>
+If "%optS%"=="%on%"                 >>%OCS2021LTSC% ECHO   ^</AppSettings^>
+                                    >>%OCS2021LTSC% ECHO ^</Configuration^>
 ENDLOCAL
 GoTo :EOF
 :SKIP
@@ -10306,8 +10382,6 @@ rem ---END--------------------------------
 
 rem ---START------------------------------
 :install_o2024lts
-setlocal EnableExtensions
-setlocal EnableDelayedExpansion
 cls
 TITLE Microsoft Office LTSC 2024 Professional Plus - Online Installer
 PushD "%~dp0"
@@ -10671,8 +10745,6 @@ rem ---END--------------------------------
 
 rem ---START------------------------------
 :install_o365
-setlocal EnableExtensions
-setlocal EnableDelayedExpansion
 cls
 TITLE Microsoft Office 365 ProPlus - Online Installer
 PushD "%~dp0"
