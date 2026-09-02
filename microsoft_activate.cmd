@@ -12170,7 +12170,7 @@ echo.
 if %FlightSigningEnabled% neq 1 goto :ASK_FOR_REBOOT
 echo Press any key to exit.
 pause >nul
-goto :EOF
+goto :supMenu_Troubleshooter
 
 :STOP_INSIDER
 echo Applying changes...
@@ -12199,6 +12199,7 @@ set /p choice="Would you like to reboot your PC? (y/N) "
 if /I "%choice%"=="y" shutdown -r -t 0
 goto :EOF
 rem ---END--------------------------------
+
 :clearSPP
 set spp=SoftwareLicensingProduct
 set sps=SoftwareLicensingService
